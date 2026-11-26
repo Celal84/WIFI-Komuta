@@ -70,7 +70,7 @@
    EX20v Ağ Kontrol Merkezi — tek dosya PWA (derleme yok)
    Sürüm: VERSION sabiti + VERSION dosyası + agent/server.py birlikte güncellenir.
    ===================================================================== */
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const GATEWAY = '192.168.1.1';
 const CF = 'https://speed.cloudflare.com';
 const AGENT_PORT = 8080;
@@ -306,7 +306,7 @@ function viewSummary() {
     ${quick('Modem', S.agent ? (S.agent.info.router_configured ? 'Bağlı — kontrol et' : 'Bağlantıyı ayarla') : 'Menü rehberi', 'router', 'modem')}
   </section>
   ${a.issues.length ? `<section class="card p-5"><h2 class="font-semibold mb-3">Tespit edilen sorunlar</h2><ul class="space-y-2">${a.issues.map(i =>
-    `<li class="flex gap-2 text-sm"><span class="chip ${i.sev === 'high' ? 'bg-rose-500/20 text-rose-300' : 'bg-amber-500/20 text-amber-200'}">${i.sev === 'high' ? 'Önemli' : 'Orta'}</span><span><b>${esc(i.title)}</b> — <span class="text-slate-400">${esc(i.detail)}</span></span></li>`).join('')}</ul></section>` : ''}`;
+    `<li class="flex items-start gap-2 text-sm"><span class="chip shrink-0 mt-0.5 ${i.sev === 'high' ? 'bg-rose-500/20 text-rose-300' : 'bg-amber-500/20 text-amber-200'}">${i.sev === 'high' ? 'Önemli' : 'Orta'}</span><span><b>${esc(i.title)}</b> — <span class="text-slate-400">${esc(i.detail)}</span></span></li>`).join('')}</ul></section>` : ''}`;
 }
 const stat = (l, v, u, ic) => `<div class="rounded-xl bg-[#0b1220] border border-[#1e2a44] p-3"><div class="text-[11px] text-slate-400 flex items-center gap-1"><i data-lucide="${ic}"></i>${l}</div><div class="text-xl font-bold mt-0.5">${v}</div><div class="text-[11px] text-slate-500">${u}</div></div>`;
 const quick = (t, d, ic, tab) => `<button class="card p-4 text-left hover:border-blue-500/60 transition" onclick="go('${tab}')"><div class="flex items-center gap-2 font-semibold"><i data-lucide="${ic}"></i>${t}</div><div class="text-sm text-slate-400 mt-1">${d}</div></button>`;
