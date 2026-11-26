@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="tr" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EX20v Ağ Kontrol Merkezi</title>
+<meta name="description" content="TP-Link EX20v ev ağı için hız, bufferbloat, cihaz ve Wi-Fi kanal kontrol merkezi">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="EX20v Kontrol">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<script>tailwind.config = { darkMode: 'class' };</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  html, body { background: #0b1220; }
+  body { padding-bottom: env(safe-area-inset-bottom); -webkit-tap-highlight-color: transparent; }
+  .card { background: #111a2e; border: 1px solid #1e2a44; border-radius: 1rem; }
+  .tab-btn[aria-selected="true"] { background: #2563eb; color: #fff; }
+  .no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { scrollbar-width: none; }
+  .chip { font-size: .72rem; padding: .15rem .5rem; border-radius: 999px; white-space: nowrap; }
+  input, select, textarea { background: #0b1220; border: 1px solid #2a3858; border-radius: .6rem; padding: .55rem .7rem; color: #e5e7eb; width: 100%; }
+  input:focus, select:focus { outline: 2px solid #2563eb; outline-offset: 0; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; border-radius: .7rem; padding: .6rem 1rem; font-weight: 600; font-size: .9rem; transition: .15s; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary { background: #2563eb; color: #fff; } .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-ghost { background: #1a2540; color: #cbd5e1; } .btn-ghost:hover:not(:disabled) { background: #22304f; }
+  .btn-danger { background: #7f1d1d; color: #fecaca; } .btn-danger:hover:not(:disabled) { background: #991b1b; }
+  .path { font-family: ui-monospace, monospace; font-size: .78rem; background: #0b1220; border: 1px dashed #334155; border-radius: .5rem; padding: .35rem .55rem; display: inline-block; }
+  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
+  [data-lucide] { width: 1.1em; height: 1.1em; }
+</style>
+</head>
+<body class="text-slate-200 antialiased min-h-screen">
+
+<header class="sticky top-0 z-30 bg-[#0b1220]/95 backdrop-blur border-b border-[#1e2a44]">
+  <div class="max-w-5xl mx-auto px-4 pt-3 pb-2">
+    <div class="flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="font-bold text-[15px] sm:text-lg leading-tight"><span id="app-title">EX20v Ağ Kontrol Merkezi</span> <span class="text-sky-300 font-semibold whitespace-nowrap" id="app-version"></span></h1>
+        <p class="text-[11px] text-slate-500">TP-Link EX20v · AX1800 · 192.168.1.1</p>
+      </div>
+      <button id="mode-badge" class="chip bg-slate-700 text-slate-200 flex items-center gap-1 shrink-0" title="Mod bilgisi">
+        <i data-lucide="loader" class="spin"></i> Kontrol ediliyor
+      </button>
+    </div>
+    <nav class="mt-3 flex gap-1.5 overflow-x-auto no-scrollbar" role="tablist" id="tabs"></nav>
+  </div>
+</header>
+
+<div id="alert-bar" class="hidden max-w-5xl mx-auto px-4 mt-3"></div>
+
+<main class="max-w-5xl mx-auto px-4 py-4 space-y-4" id="view"></main>
+
+<div id="toast" class="fixed left-1/2 -translate-x-1/2 bottom-6 z-50 hidden px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-600 text-sm shadow-xl max-w-[90vw]"></div>
+
+<div id="modal" class="fixed inset-0 z-40 hidden bg-black/70 flex items-end sm:items-center justify-center p-3">
+  <div class="card w-full max-w-md p-5 max-h-[85vh] overflow-y-auto" id="modal-body"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   EX20v Ağ Kontrol Merkezi — tek dosya PWA (derleme yok)
+   Sürüm: VERSION sabiti + VERSION dosyası + agent/server.py birlikte güncellenir.
+   ===================================================================== */
+const VERSION = '1.0.0';
+const GATEWAY = '192.168.1.1';
+const CF = 'https://speed.cloudflare.com';
+const AGENT_PORT = 8080;
+
+/* Modem menü yolları — firmware/dil farkı varsa yalnızca burayı düzelt. */
+const MENU = {
+  wireless: ['Gelişmiş (Advanced)', 'Kablosuz (Wireless)', 'Kablosuz Ayarları (Wireless Settings)'],
+  smartConnect: ['Gelişmiş (Advanced)', 'Kablosuz (Wireless)', 'Kablosuz Ayarları', 'Akıllı Bağlantı (Smart Connect)'],
+  dhcp: ['Gelişmiş (Advanced)', 'Ağ (Network)', 'LAN Ayarları (LAN Settings)', 'DHCP Sunucusu'],
+  qos: ['Gelişmiş (Advanced)', 'QoS'],
+  blacklist: ['Gelişmiş (Advanced)', 'Güvenlik (Security)', 'Erişim Kontrolü (Access Control)', 'Kara Liste (Blacklist)'],
+  reboot: ['Gelişmiş (Advanced)', 'Sistem Araçları (System Tools)', 'Yeniden Başlat (Reboot)'],
+  firmware: ['Gelişmiş (Advanced)', 'Sistem Araçları (System Tools)', 'Firmware Yükseltme'],
+};
+const CATEGORIES = ['Telefon', 'Bilgisayar', 'Tablet', 'TV / Medya', 'Oyun Konsolu', 'Akıllı Ev / IoT', 'Yazıcı', 'Modem / Ağ', 'Diğer'];
+
+/* ------------------------------------------------------------- yardımcılar */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = (v, d = 1) => v == null || isNaN(v) ? '—' : Number(v).toFixed(d);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const median = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+const jitterOf = a => a.length < 2 ? 0 : a.slice(1).reduce((t, v, i) => t + Math.abs(v - a[i]), 0) / (a.length - 1);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('ex20v.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('ex20v.' + k, JSON.stringify(v)); } catch { /* özel mod */ } },
+};
+const icons = () => window.lucide && lucide.createIcons();
+const pathHtml = arr => `<span class="path">${arr.map(esc).join(' <span class="text-slate-500">›</span> ')}</span>`;
+const modemLink = `<a href="http://${GATEWAY}" target="_blank" rel="noopener" class="btn btn-ghost !py-1.5 !px-3 text-xs"><i data-lucide="external-link"></i> ${GATEWAY}</a>`;
+
+function toast(msg, ms = 2600) {
+  const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add('hidden'), ms);
+}
+async function copy(text, label = 'Kopyalandı') {
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text);
+    else {
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    toast(`${label}: ${text}`);
+  } catch { toast('Kopyalanamadı — elle seçip kopyalayın'); }
+}
+function modal(html) { $('#modal-body').innerHTML = html; $('#modal').classList.remove('hidden'); icons(); }
+function closeModal() { $('#modal').classList.add('hidden'); }
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal' || e.target.closest('[data-close]')) closeModal(); });
+
+/* ------------------------------------------------------------- durum */
+const S = {
+  tab: store.get('tab', 'ozet'),
+  agent: null,          // { base, info }
+  last: store.get('last', null),
+  devices: null, devicesLoading: false, devFilter: 'all',
+  wifi: null, wifiLoading: false, wifiError: null,
+  router: null, routerLoading: false, routerError: null,
+  history: [], running: false, live: null,
+  settings: Object.assign({ agentUrl: '', key: '', planDown: 0, planUp: 0, duration: 10 }, store.get('settings', {})),
+  charts: {},
+};
+const saveSettings = () => store.set('settings', S.settings);
+
+/* ------------------------------------------------------------- ajan algılama */
+function agentCandidates() {
+  const c = [];
+  const servedByAgent = location.protocol === 'http:' && location.port === String(AGENT_PORT);
+  if (servedByAgent) c.push(location.origin);
+  if (S.settings.agentUrl) c.push(S.settings.agentUrl.replace(/\/+$/, ''));
+  c.push(`http://localhost:${AGENT_PORT}`, `http://127.0.0.1:${AGENT_PORT}`);
+  // HTTPS sayfadan yerel ağ IP'sine HTTP isteği tarayıcıca engellenir (mixed content); denemeye gerek yok.
+  return [...new Set(c)].filter(u => location.protocol === 'http:' || u.startsWith('https:') || /\/\/(localhost|127\.0\.0\.1)/.test(u));
+}
+async function probe(base) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 1500);
+  try {
+    const opts = { signal: ctl.signal, cache: 'no-store' };
+    if (/\/\/(localhost|127\.)/.test(base) && location.protocol === 'https:') opts.targetAddressSpace = 'loopback';
+    const r = await fetch(base + '/api/health', opts);
+    if (!r.ok) return null;
+    const info = await r.json();
+    return info && info.ok ? info : null;
+  } catch { return null; } finally { clearTimeout(t); }
+}
+async function detectAgent() {
+  for (const base of agentCandidates()) {
+    const info = await probe(base);
+    if (info) {
+      S.agent = { base, info };
+      if (!S.settings.key && !info.key_required) {
+        try { const k = await (await fetch(base + '/api/key')).json(); if (k.key) { S.settings.key = k.key; saveSettings(); } } catch { }
+      }
+      break;
+    }
+  }
+  renderBadge(); render();
+  if (S.agent) loadHistory().then(() => S.tab === 'gecmis' && render());
+}
+async function api(path, opts = {}) {
+  if (!S.agent) throw new Error('Ajan bağlı değil');
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  if (S.settings.key) headers['X-Agent-Key'] = S.settings.key;
+  const r = await fetch(S.agent.base + path, Object.assign({}, opts, { headers }));
+  let body = null; try { body = await r.json(); } catch { }
+  if (!r.ok) { const e = new Error((body && (body.detail || body.error)) || `HTTP ${r.status}`); e.status = r.status; e.body = body; throw e; }
+  return body;
+}
+function renderBadge() {
+  const b = $('#mode-badge');
+  if (S.agent) {
+    b.className = 'chip bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shrink-0';
+    b.innerHTML = '<i data-lucide="plug-zap"></i> Yerel Ajan Bağlı';
+  } else {
+    b.className = 'chip bg-sky-600/20 text-sky-300 border border-sky-500/40 flex items-center gap-1 shrink-0';
+    b.innerHTML = '<i data-lucide="cloud"></i> Bulut/Tarayıcı Modu';
+  }
+  b.onclick = () => modal(S.agent
+    ? `<h3 class="font-bold mb-2">Yerel Ajan Bağlı</h3><p class="text-sm text-slate-300">Adres: <b>${esc(S.agent.base)}</b><br>Bilgisayar: ${esc(S.agent.info.hostname)} (${esc(S.agent.info.pc_ip)})<br>Ajan sürümü: v${esc(S.agent.info.version)}</p>
+       <p class="text-sm text-slate-400 mt-3">Telefondan açmak için: <b>http://${esc(S.agent.info.pc_ip)}:${AGENT_PORT}</b></p>
+       <button class="btn btn-ghost w-full mt-4" data-close>Kapat</button>`
+    : `<h3 class="font-bold mb-2">Bulut/Tarayıcı Modu</h3><p class="text-sm text-slate-300">Hız/Bufferbloat testi, ağ doktoru, QoS hesaplayıcı ve geçmiş (bu tarayıcıda) çalışır.</p>
+       ${agentHelp()}<button class="btn btn-ghost w-full mt-4" data-close>Kapat</button>`);
+  icons();
+}
+function agentHelp() {
+  return `<div class="text-sm text-slate-300 mt-3 space-y-2">
+    <p><b>Tam kontrol için</b> Windows bilgisayarda repodaki <code class="text-sky-300">baslat.bat</code> dosyasını çalıştırın.</p>
+    <p>• Aynı bilgisayardan: bu sayfa ajanı otomatik bulur (Chrome "yerel ağ erişimi" izni sorarsa <b>İzin ver</b>).</p>
+    <p>• Telefondan: <code class="text-sky-300">http://&lt;PC-IP&gt;:${AGENT_PORT}</code> adresini açın (baslat.bat penceresinde yazar). GitHub Pages (HTTPS) sayfası, güvenlik kuralı gereği yerel ağdaki HTTP ajana bağlanamaz.</p>
+  </div>`;
+}
+
+/* ------------------------------------------------------------- sekmeler */
+const TABS = [
+  ['ozet', 'Özet', 'layout-dashboard'], ['hiz', 'Hız Testi', 'gauge'], ['doktor', 'Ağ Doktoru', 'stethoscope'],
+  ['cihazlar', 'Cihazlar', 'smartphone'], ['wifi', 'Wi-Fi Kanal', 'radio-tower'], ['modem', 'Modem', 'router'],
+  ['gecmis', 'Geçmiş', 'line-chart'], ['ayarlar', 'Ayarlar', 'settings'],
+];
+function renderTabs() {
+  $('#tabs').innerHTML = TABS.map(([id, label, ic]) =>
+    `<button class="tab-btn btn btn-ghost !py-1.5 !px-3 text-[13px] shrink-0" role="tab" aria-selected="${S.tab === id}" data-tab="${id}"><i data-lucide="${ic}"></i>${label}</button>`).join('');
+}
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('[data-tab]'); if (!b) return;
+  go(b.dataset.tab);
+});
+function go(tab) {
+  S.tab = tab; store.set('tab', tab); render(); window.scrollTo({ top: 0 });
+  const b = $(`[data-tab="${tab}"]`); b && b.scrollIntoView({ inline: 'center', block: 'nearest' });
+}
+function destroyCharts() { Object.values(S.charts).forEach(c => c && c.destroy()); S.charts = {}; }
+function render() {
+  renderTabs(); destroyCharts();
+  const v = $('#view');
+  const fn = { ozet: viewSummary, hiz: viewSpeed, doktor: viewDoctor, cihazlar: viewDevices, wifi: viewWifi, modem: viewModem, gecmis: viewHistory, ayarlar: viewSettings }[S.tab] || viewSummary;
+  v.innerHTML = fn();
+  const after = { ozet: afterSummary, hiz: afterSpeed, doktor: qosUpdate, cihazlar: afterDevices, wifi: afterWifi, modem: afterModem, gecmis: afterHistory }[S.tab];
+  after && after();
+  renderAlert(); icons();
+}
+function needAgent(what) {
+  return `<section class="card p-5">
+    <div class="flex items-center gap-2 text-amber-300 font-semibold"><i data-lucide="plug"></i> ${esc(what)} için yerel ajan gerekli</div>
+    <p class="text-sm text-slate-300 mt-2">Detaylı tarama için repodaki <code class="text-sky-300">baslat.bat</code> dosyasını çalıştırın.</p>
+    ${agentHelp()}
+    <button class="btn btn-primary mt-4" onclick="recheckAgent()"><i data-lucide="refresh-cw"></i> Ajanı tekrar ara</button>
+  </section>`;
+}
+async function recheckAgent() { toast('Ajan aranıyor…'); S.agent = null; await detectAgent(); toast(S.agent ? 'Yerel ajan bağlandı' : 'Ajan bulunamadı'); }
+
+/* ------------------------------------------------------------- puan & sorunlar */
+function analyze(m) {
+  const issues = []; let score = 100;
+  const add = (pts, sev, key, title, detail) => { score -= pts; issues.push({ sev, key, title, detail }); };
+  if (!m) return { score: null, issues };
+  if (m.ping > 60) add(15, 'high', 'latency', 'İnternet gecikmesi yüksek', `Boşta ping ${fmt(m.ping, 0)} ms (iyi: < 30 ms).`);
+  else if (m.ping > 30) add(6, 'mid', 'latency', 'İnternet gecikmesi orta', `Boşta ping ${fmt(m.ping, 0)} ms.`);
+  if (m.jitter > 20) add(12, 'high', 'jitter', 'Jitter yüksek', `Gecikme dalgalanması ${fmt(m.jitter)} ms — görüntülü görüşme ve oyunlarda takılma yapar.`);
+  else if (m.jitter > 8) add(5, 'mid', 'jitter', 'Jitter orta', `Gecikme dalgalanması ${fmt(m.jitter)} ms.`);
+  const bb = m.bufferbloat;
+  if (bb != null) {
+    if (bb > 200) add(30, 'high', 'bufferbloat', 'Ciddi bufferbloat', `Yük altında gecikme +${fmt(bb, 0)} ms artıyor. QoS ile hız sınırı koyun.`);
+    else if (bb > 60) add(18, 'high', 'bufferbloat', 'Bufferbloat var', `Yük altında gecikme +${fmt(bb, 0)} ms artıyor.`);
+    else if (bb > 30) add(8, 'mid', 'bufferbloat', 'Hafif bufferbloat', `Yük altında gecikme +${fmt(bb, 0)} ms artıyor.`);
+  }
+  if (S.settings.planDown > 0 && m.download != null && m.download < S.settings.planDown * 0.6)
+    add(15, 'high', 'slow', 'Hız aboneliğin altında', `${fmt(m.download, 0)} / ${S.settings.planDown} Mbps (%${fmt(100 * m.download / S.settings.planDown, 0)}).`);
+  if (m.gwPing != null) {
+    if (m.gwPing > 20) add(15, 'high', 'wifi', 'Modeme gecikme yüksek', `192.168.1.1 ping ${fmt(m.gwPing)} ms (kablosuzda iyi: < 5 ms). Wi-Fi sinyali/kanalı sorunlu.`);
+    else if (m.gwPing > 6) add(6, 'mid', 'wifi', 'Modeme gecikme orta', `192.168.1.1 ping ${fmt(m.gwPing)} ms.`);
+  }
+  if (m.gwLoss > 2) add(25, 'high', 'loss', 'Paket kaybı', `Modeme %${fmt(m.gwLoss)} paket kaybı — parazit veya zayıf sinyal.`);
+  else if (m.gwLoss > 0) add(8, 'mid', 'loss', 'Az paket kaybı', `Modeme %${fmt(m.gwLoss)} paket kaybı.`);
+  if (m.dns && m.dns.length) {
+    const cur = m.dns.find(d => d.current), best = m.dns.find(d => d.median != null);
+    if (cur && best && cur.median != null && cur.median - best.median > 15)
+      add(6, 'mid', 'dns', 'DNS daha hızlı olabilir', `Mevcut DNS ${fmt(cur.median, 0)} ms, ${best.name} ${fmt(best.median, 0)} ms.`);
+  }
+  if (m.wifiBand === '2.4') add(8, 'mid', 'band', '2.4 GHz bandındasınız', 'Cihaz 5 GHz yerine 2.4 GHz\'e bağlı; hız düşük ve parazit yüksek olur.');
+  if (m.wifiSignal != null && m.wifiSignal < 50) add(10, 'high', 'signal', 'Wi-Fi sinyali zayıf', `Sinyal %${m.wifiSignal}. Modeme yaklaşın veya kanal/yerleşimi değiştirin.`);
+  return { score: Math.max(0, Math.min(100, Math.round(score))), issues };
+}
+const scoreColor = s => s == null ? 'text-slate-400' : s >= 85 ? 'text-emerald-400' : s >= 65 ? 'text-amber-300' : 'text-rose-400';
+const bbGrade = bb => bb == null ? '—' : bb < 5 ? 'A+' : bb < 30 ? 'A' : bb < 60 ? 'B' : bb < 200 ? 'C' : bb < 400 ? 'D' : 'F';
+
+/* ------------------------------------------------------------- ÖZET */
+function viewSummary() {
+  const m = S.last, a = analyze(m);
+  return `
+  <section class="card p-5 grid sm:grid-cols-[auto,1fr] gap-5 items-center">
+    <div class="relative w-36 h-36 mx-auto">
+      <canvas id="score-ring" width="144" height="144"></canvas>
+      <div class="absolute inset-0 flex flex-col items-center justify-center">
+        <div class="text-4xl font-extrabold ${scoreColor(a.score)}">${a.score ?? '—'}</div>
+        <div class="text-[11px] text-slate-400">Ağ Sağlık Puanı</div>
+      </div>
+    </div>
+    <div>
+      ${m ? `<p class="text-sm text-slate-400">Son ölçüm: ${new Date(m.ts).toLocaleString('tr-TR')} ${m.colo ? '· Cloudflare ' + esc(m.colo) : ''}</p>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+        ${stat('İndirme', fmt(m.download), 'Mbps', 'download')}${stat('Yükleme', fmt(m.upload), 'Mbps', 'upload')}
+        ${stat('Ping', fmt(m.ping, 0), 'ms', 'timer')}${stat('Bufferbloat', bbGrade(m.bufferbloat), m.bufferbloat != null ? '+' + fmt(m.bufferbloat, 0) + ' ms' : '', 'waves')}
+      </div>` : `<p class="text-slate-300">Henüz ölçüm yok. Ağ sağlık puanı için bir hız testi yapın.</p>`}
+      <div class="flex flex-wrap gap-2 mt-4">
+        <button class="btn btn-primary" onclick="go('hiz')"><i data-lucide="play"></i> Hız testi</button>
+        <button class="btn btn-ghost" onclick="go('doktor')"><i data-lucide="stethoscope"></i> Çözümler (${a.issues.length})</button>
+      </div>
+    </div>
+  </section>
+  <section class="grid sm:grid-cols-3 gap-3">
+    ${quick('Cihazlar', S.agent ? (S.devices ? `${S.devices.devices.filter(d => d.online).length} çevrimiçi` : 'Taramak için dokunun') : 'Ajan gerekli', 'smartphone', 'cihazlar')}
+    ${quick('Wi-Fi Kanal', S.agent ? (S.agent.info.wifi_supported ? 'Kanal analizi' : 'Windows gerekli') : 'Ajan gerekli', 'radio-tower', 'wifi')}
+    ${quick('Modem', S.agent ? (S.agent.info.router_configured ? 'Bağlı — kontrol et' : 'Bağlantıyı ayarla') : 'Menü rehberi', 'router', 'modem')}
+  </section>
+  ${a.issues.length ? `<section class="card p-5"><h2 class="font-semibold mb-3">Tespit edilen sorunlar</h2><ul class="space-y-2">${a.issues.map(i =>
+    `<li class="flex gap-2 text-sm"><span class="chip ${i.sev === 'high' ? 'bg-rose-500/20 text-rose-300' : 'bg-amber-500/20 text-amber-200'}">${i.sev === 'high' ? 'Önemli' : 'Orta'}</span><span><b>${esc(i.title)}</b> — <span class="text-slate-400">${esc(i.detail)}</span></span></li>`).join('')}</ul></section>` : ''}`;
+}
+const stat = (l, v, u, ic) => `<div class="rounded-xl bg-[#0b1220] border border-[#1e2a44] p-3"><div class="text-[11px] text-slate-400 flex items-center gap-1"><i data-lucide="${ic}"></i>${l}</div><div class="text-xl font-bold mt-0.5">${v}</div><div class="text-[11px] text-slate-500">${u}</div></div>`;
+const quick = (t, d, ic, tab) => `<button class="card p-4 text-left hover:border-blue-500/60 transition" onclick="go('${tab}')"><div class="flex items-center gap-2 font-semibold"><i data-lucide="${ic}"></i>${t}</div><div class="text-sm text-slate-400 mt-1">${d}</div></button>`;
+function afterSummary() {
+  const a = analyze(S.last), c = $('#score-ring'); if (!c || !window.Chart) return;
+  const s = a.score ?? 0, col = a.score == null ? '#334155' : s >= 85 ? '#34d399' : s >= 65 ? '#fcd34d' : '#fb7185';
+  S.charts.ring = new Chart(c, { type: 'doughnut', data: { datasets: [{ data: [s, 100 - s], backgroundColor: [col, '#1e293b'], borderWidth: 0 }] },
+    options: { cutout: '80%', responsive: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, animation: { duration: 500 } } });
+}
+
+/* ------------------------------------------------------------- HIZ TESTİ */
+function viewSpeed() {
+  const m = S.last, L = S.live;
+  return `
+  <section class="card p-5">
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="gauge"></i> Hız, Gecikme & Bufferbloat</h2>
+      <span class="chip bg-slate-700/60 text-slate-300">${S.agent ? 'Tarayıcı + yerel ajan ölçümleri' : 'Tarayıcı ölçümü'}</span>
+    </div>
+    <label class="block text-sm text-slate-400 mt-4">Not (ör. "Kanal 6'ya geçtim", "QoS açtım") — öncesi/sonrası kıyası için
+      <input id="test-note" class="mt-1" placeholder="İsteğe bağlı" maxlength="80"></label>
+    <button id="start-test" class="btn btn-primary w-full mt-3 !py-3 text-base" ${S.running ? 'disabled' : ''} onclick="runTest()">
+      ${S.running ? '<i data-lucide="loader" class="spin"></i> Test sürüyor…' : '<i data-lucide="play"></i> Testi Başlat'}</button>
+    <div id="live" class="mt-4 ${L ? '' : 'hidden'}">
+      <div class="flex justify-between text-sm"><span id="live-phase" class="text-slate-300">${L ? esc(L.phase) : ''}</span><span id="live-val" class="font-bold">${L && L.val ? L.val : ''}</span></div>
+      <div class="h-2 bg-slate-800 rounded mt-2 overflow-hidden"><div id="live-bar" class="h-full bg-blue-500 transition-all" style="width:${L ? L.pct : 0}%"></div></div>
+    </div>
+    <p class="text-[11px] text-slate-500 mt-3">Test yaklaşık ${S.settings.duration * 2 + 8} sn sürer ve ~${S.settings.duration * 2 * 10}–${S.settings.duration * 2 * 60} MB veri kullanabilir. Ölçüm sunucusu: speed.cloudflare.com</p>
+  </section>
+  ${m ? resultCard(m) : ''}`;
+}
+function resultCard(m) {
+  return `<section class="card p-5">
+    <h3 class="font-semibold mb-3">Sonuç <span class="text-xs text-slate-400 font-normal">${new Date(m.ts).toLocaleString('tr-TR')}${m.note ? ' · ' + esc(m.note) : ''}</span></h3>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      ${stat('İndirme', fmt(m.download), 'Mbps', 'download')}${stat('Yükleme', fmt(m.upload), 'Mbps', 'upload')}
+      ${stat('Ping (boşta)', fmt(m.ping, 0), `jitter ${fmt(m.jitter)} ms`, 'timer')}
+      ${stat('Bufferbloat', bbGrade(m.bufferbloat), `↓ ${fmt(m.loadedDown, 0)} / ↑ ${fmt(m.loadedUp, 0)} ms`, 'waves')}
+    </div>
+    ${m.gwPing != null || m.dns ? `<div class="grid sm:grid-cols-2 gap-3 mt-3">
+      ${m.gwPing != null ? `<div class="rounded-xl bg-[#0b1220] border border-[#1e2a44] p-3 text-sm"><div class="text-slate-400 text-xs mb-1">EX20v (192.168.1.1) yerel ping</div>
+        Ortalama <b>${fmt(m.gwPing)} ms</b> · jitter ${fmt(m.gwJitter)} ms · kayıp <b class="${m.gwLoss > 0 ? 'text-rose-300' : 'text-emerald-300'}">%${fmt(m.gwLoss)}</b>
+        ${m.wifiBand ? `<div class="text-xs text-slate-400 mt-1">Wi-Fi: ${m.wifiBand} GHz · kanal ${m.wifiChannel ?? '—'} · sinyal %${m.wifiSignal ?? '—'}</div>` : ''}</div>` : ''}
+      ${m.dns ? `<div class="rounded-xl bg-[#0b1220] border border-[#1e2a44] p-3 text-sm"><div class="text-slate-400 text-xs mb-1">DNS yanıt süresi (medyan)</div>
+        ${m.dns.map((d, i) => `<div class="flex justify-between"><span>${i === 0 ? '🏆 ' : ''}${esc(d.name)}</span><b>${d.median != null ? fmt(d.median, 0) + ' ms' : 'yanıt yok'}</b></div>`).join('')}</div>` : ''}
+    </div>` : ''}
+    <button class="btn btn-ghost mt-3" onclick="go('doktor')"><i data-lucide="stethoscope"></i> Ağ doktoruna git</button>
+  </section>`;
+}
+function afterSpeed() { }
+function setLive(phase, pct, val) {
+  S.live = { phase, pct, val };
+  const l = $('#live'); if (!l) return;
+  l.classList.remove('hidden'); $('#live-phase').textContent = phase; $('#live-bar').style.width = pct + '%'; $('#live-val').textContent = val || '';
+}
+const rnd = () => Math.random().toString(36).slice(2);
+async function latencyOnce(signal) {
+  const t0 = performance.now();
+  const r = await fetch(`${CF}/__down?bytes=0&r=${rnd()}`, { cache: 'no-store', signal });
+  await r.arrayBuffer();
+  let rtt = performance.now() - t0;
+  // Sunucu işlem süresini düş (Server-Timing: cfRequestDuration / dur=)
+  const st = r.headers.get('server-timing'); const m = st && st.match(/dur=([\d.]+)/);
+  if (m) rtt = Math.max(0.5, rtt - parseFloat(m[1]));
+  S._colo = r.headers.get('cf-meta-colo') || S._colo;
+  return rtt;
+}
+async function idleLatency(n = 16) {
+  const out = []; await latencyOnce().catch(() => { }); // ısınma (TLS/bağlantı)
+  for (let i = 0; i < n; i++) { try { out.push(await latencyOnce()); } catch { } setLive('Gecikme ölçülüyor', 5 + i * 0.6, out.length ? `${fmt(median(out), 0)} ms` : ''); }
+  return out;
+}
+function loadedProbe(stopRef, arr) {
+  return (async () => { while (!stopRef.stop) { try { arr.push(await latencyOnce()); } catch { } await sleep(250); } })();
+}
+async function downloadTest(sec, base, span) {
+  const ctl = new AbortController(), t0 = performance.now(); let bytes = 0, warmBytes = 0, warmT = 0; const warm = 1500;
+  const worker = async () => {
+    while (performance.now() - t0 < sec * 1000) {
+      try {
+        const r = await fetch(`${CF}/__down?bytes=25000000&r=${rnd()}`, { cache: 'no-store', signal: ctl.signal });
+        const rd = r.body.getReader();
+        for (; ;) { const { done, value } = await rd.read(); if (done) break; bytes += value.length; if (performance.now() - t0 > sec * 1000) { ctl.abort(); break; } }
+      } catch { if (ctl.signal.aborted) return; await sleep(200); }
+    }
+  };
+  const ticker = setInterval(() => {
+    const t = performance.now() - t0;
+    if (!warmT && t > warm) { warmT = t; warmBytes = bytes; }
+    const mbps = warmT ? ((bytes - warmBytes) * 8 / ((t - warmT) / 1000) / 1e6) : (bytes * 8 / (t / 1000) / 1e6);
+    setLive('İndirme', base + span * Math.min(1, t / (sec * 1000)), `${fmt(mbps)} Mbps`);
+  }, 200);
+  await Promise.all(Array.from({ length: 6 }, worker));
+  clearInterval(ticker); ctl.abort();
+  const t = performance.now() - t0;
+  return warmT ? (bytes - warmBytes) * 8 / ((t - warmT) / 1000) / 1e6 : bytes * 8 / (t / 1000) / 1e6;
+}
+let _upBlob = null;
+function upBlob() {
+  if (_upBlob) return _upBlob;
+  const size = 8 * 1024 * 1024, buf = new Uint8Array(size);
+  for (let i = 0; i < size; i += 65536) crypto.getRandomValues(buf.subarray(i, Math.min(i + 65536, size)));
+  return (_upBlob = new Blob([buf], { type: 'text/plain' })); // text/plain: CORS ön kontrolü gerekmez
+}
+async function uploadTest(sec, base, span) {
+  const t0 = performance.now(), loaded = new Map(); let id = 0, warmBytes = 0, warmT = 0; const warm = 1500, xhrs = new Set();
+  const total = () => [...loaded.values()].reduce((a, b) => a + b, 0);
+  const worker = async () => {
+    while (performance.now() - t0 < sec * 1000) {
+      const my = id++;
+      await new Promise(res => {
+        const x = new XMLHttpRequest(); xhrs.add(x);
+        x.open('POST', `${CF}/__up?r=${rnd()}`);
+        x.upload.onprogress = e => loaded.set(my, e.loaded);
+        x.onloadend = () => { xhrs.delete(x); res(); };
+        x.send(upBlob());
+      });
+    }
+  };
+  const ticker = setInterval(() => {
+    const t = performance.now() - t0, b = total();
+    if (!warmT && t > warm) { warmT = t; warmBytes = b; }
+    const mbps = warmT ? ((b - warmBytes) * 8 / ((t - warmT) / 1000) / 1e6) : (b * 8 / (t / 1000) / 1e6);
+    setLive('Yükleme', base + span * Math.min(1, t / (sec * 1000)), `${fmt(mbps)} Mbps`);
+    if (t > sec * 1000) xhrs.forEach(x => x.abort());
+  }, 200);
+  await Promise.all(Array.from({ length: 4 }, worker));
+  clearInterval(ticker);
+  const t = performance.now() - t0, b = total();
+  return warmT ? (b - warmBytes) * 8 / ((t - warmT) / 1000) / 1e6 : b * 8 / (t / 1000) / 1e6;
+}
+async function runTest() {
+  if (S.running) return;
+  const note = ($('#test-note') || {}).value || '';
+  S.running = true; S.live = null; render();
+  const sec = Number(S.settings.duration) || 10;
+  try {
+    setLive('Gecikme ölçülüyor', 2, '');
+    const idle = await idleLatency();
+    if (!idle.length) throw new Error('Cloudflare ölçüm sunucusuna ulaşılamadı. İnternet bağlantısını kontrol edin.');
+    const ping = median(idle), jitter = jitterOf(idle);
+
+    const dl = [], stopD = { stop: false }; const pd = loadedProbe(stopD, dl);
+    const download = await downloadTest(sec, 15, 35); stopD.stop = true; await pd;
+
+    const ul = [], stopU = { stop: false }; const pu = loadedProbe(stopU, ul);
+    const upload = await uploadTest(sec, 50, 35); stopU.stop = true; await pu;
+
+    const loadedDown = median(dl), loadedUp = median(ul);
+    const bufferbloat = Math.max(0, Math.max(loadedDown ?? ping, loadedUp ?? ping) - ping);
+    const m = { ts: Date.now(), download, upload, ping, jitter, loadedDown, loadedUp, bufferbloat, colo: S._colo || '', note, mode: S.agent ? 'ajan' : 'tarayıcı' };
+
+    if (S.agent) {
+      setLive('Yerel ölçümler: EX20v ping, DNS, Wi-Fi', 88, '');
+      const [gw, dns, wifi] = await Promise.allSettled([api('/api/ping?count=20'), api('/api/dns'), S.agent.info.wifi_supported ? api('/api/wifi?refresh=false') : Promise.reject()]);
+      if (gw.status === 'fulfilled') Object.assign(m, { gwPing: gw.value.avg, gwJitter: gw.value.jitter, gwLoss: gw.value.loss });
+      if (dns.status === 'fulfilled') m.dns = dns.value.results;
+      if (wifi.status === 'fulfilled') { const i = wifi.value.interface || {}; Object.assign(m, { wifiBand: i.band, wifiChannel: i.channel, wifiSignal: i.signal }); S.wifi = wifi.value; }
+    }
+    m.score = analyze(m).score;
+    S.last = m; store.set('last', m);
+    await saveMeasurement(m);
+    setLive('Tamamlandı', 100, `Puan ${m.score}`);
+    toast(`Test bitti — Ağ Sağlık Puanı: ${m.score}`);
+  } catch (e) {
+    toast('Test hatası: ' + e.message, 5000); setLive('Hata: ' + e.message, 0, '');
+  } finally { S.running = false; if (S.tab === 'hiz') render(); }
+}
+
+/* ------------------------------------------------------------- AĞ DOKTORU & QoS */
+function viewDoctor() {
+  const m = S.last, a = analyze(m), has = k => a.issues.some(i => i.key === k);
+  const down = m ? m.download : 0, up = m ? m.upload : 0;
+  const card = (active, icon, title, body) => `<section class="card p-5 ${active ? 'border-amber-500/60 ring-1 ring-amber-500/30' : ''}">
+    <div class="flex items-center justify-between gap-2"><h3 class="font-semibold flex items-center gap-2"><i data-lucide="${icon}"></i>${title}</h3>
+    ${active ? '<span class="chip bg-amber-500/20 text-amber-200">Önerilir</span>' : '<span class="chip bg-slate-700/60 text-slate-300">Rehber</span>'}</div>${body}</section>`;
+  const w = S.wifi && S.wifi.recommendation;
+  return `
+  <section class="card p-5 flex items-center gap-4">
+    <div class="text-4xl font-extrabold ${scoreColor(a.score)}">${a.score ?? '—'}</div>
+    <div class="text-sm text-slate-300">${m ? `${a.issues.length ? a.issues.length + ' sorun tespit edildi. Vurgulu kartlar öncelikli.' : 'Belirgin sorun yok. Aşağıdaki kartlar optimizasyon rehberidir.'}` : 'Puan için önce <a class="text-sky-300 underline" href="#" onclick="go(\'hiz\');return false">hız testi</a> yapın. Kartlar yine de rehber olarak kullanılabilir.'}</div>
+  </section>
+  ${card(has('wifi') || has('loss') || has('band') || has('signal') || has('jitter'), 'radio', 'Akıllı Bağlantı & Kanal',
+    `<p class="text-sm text-slate-300 mt-2">Komşu ağlarla çakışmayan kanal seçmek gecikme, jitter ve paket kaybını azaltır.</p>
+     <div class="mt-3 space-y-2 text-sm">
+       <div>${pathHtml(MENU.wireless)}</div>
+       <ul class="list-disc pl-5 text-slate-300 space-y-1">
+         <li><b>2.4 GHz:</b> Kanal ${w ? `<b class="text-emerald-300">${w.best_24}</b> (analize göre en boş)` : '1, 6 veya 11'} · Kanal genişliği <b>20 MHz</b> · Mod 802.11b/g/n/ax</li>
+         <li><b>5 GHz:</b> Kanal ${w ? `<b class="text-emerald-300">${w.best_5.channel}</b>${w.best_5.dfs ? ' (DFS — radar algılanırsa modem kanalı değiştirir)' : ''}` : '<b>36</b> (36–48 aynı 80 MHz blok)'} · Genişlik <b>80 MHz</b> · Mod 802.11a/n/ac/ax</li>
+         <li><b>Smart Connect:</b> ${pathHtml(MENU.smartConnect)} — açıkken iki bant aynı adı kullanır; cihazlar 2.4 GHz'de takılıyorsa kapatıp 5 GHz'e ayrı ad (ör. <i>EvAgi_5G</i>) verin.</li>
+       </ul>
+       <div class="flex gap-2 flex-wrap pt-1">${modemLink}${S.agent && S.agent.info.wifi_supported ? `<button class="btn btn-ghost !py-1.5 !px-3 text-xs" onclick="go('wifi')"><i data-lucide="radio-tower"></i> Kanal analizi</button>` : ''}</div>
+     </div>`)}
+  ${card(has('dns'), 'globe', 'DNS Optimizasyonu',
+    `<p class="text-sm text-slate-300 mt-2">DNS'i modemin DHCP sunucusunda değiştirirseniz tüm cihazlar otomatik kullanır.</p>
+     <div class="mt-3 space-y-2 text-sm"><div>${pathHtml(MENU.dhcp)}</div>
+     <div class="flex flex-wrap items-center gap-2">Birincil DNS: <button class="btn btn-ghost !py-1 !px-2 text-xs" onclick="copy('1.1.1.1')"><i data-lucide="copy"></i>1.1.1.1</button>
+       İkincil DNS: <button class="btn btn-ghost !py-1 !px-2 text-xs" onclick="copy('8.8.8.8')"><i data-lucide="copy"></i>8.8.8.8</button></div>
+     ${m && m.dns ? `<p class="text-xs text-slate-400">Ölçüme göre en hızlı: <b>${esc(m.dns[0].name)}</b> (${fmt(m.dns[0].median, 0)} ms)</p>` : '<p class="text-xs text-slate-400">Yerel ajan bağlıysa hız testi DNS sunucularını da kıyaslar.</p>'}
+     <p class="text-xs text-slate-500">Değişiklikten sonra cihazların Wi-Fi'ını kapatıp açın (yeni DHCP kiralaması).</p>${modemLink}</div>`)}
+  ${card(has('bufferbloat'), 'sliders-horizontal', 'QoS / Bufferbloat Hesaplayıcı',
+    `<p class="text-sm text-slate-300 mt-2">Hat hızını gerçek hızın biraz altına sınırlamak, kuyruğu modemde tutar ve yük altında gecikmeyi düşürür.</p>
+     <div class="mt-3 text-sm"><div>${pathHtml(MENU.qos)}</div>
+     <div class="grid grid-cols-2 gap-3 mt-3">
+       <label class="text-xs text-slate-400">Ölçülen indirme (Mbps)<input id="qos-down" type="number" inputmode="decimal" min="0" step="0.1" value="${down ? fmt(down) : ''}"></label>
+       <label class="text-xs text-slate-400">Ölçülen yükleme (Mbps)<input id="qos-up" type="number" inputmode="decimal" min="0" step="0.1" value="${up ? fmt(up) : ''}"></label>
+     </div>
+     <label class="text-xs text-slate-400 block mt-2">Oran: <b id="qos-pct-l">%92</b><input id="qos-pct" type="range" min="80" max="98" value="92" class="!p-0 !border-0"></label>
+     <div id="qos-out" class="grid grid-cols-2 gap-3 mt-3"></div>
+     <p class="text-xs text-slate-500 mt-2">QoS açıkken bazı modellerde donanım hızlandırma (NAT) kapanır; toplam hız belirgin düşerse oranı artırın veya QoS'u kapatın. Menüde QoS yoksa sağlayıcı firmware'i gizlemiş olabilir.</p>
+     <div class="mt-2">${modemLink}</div></div>`)}
+  ${card(false, 'shield-check', 'Güvenlik & Bakım',
+    `<ul class="list-disc pl-5 text-sm text-slate-300 mt-2 space-y-1">
+      <li>Wi-Fi güvenliği <b>WPA2/WPA3-Kişisel</b> olsun, WPS kapalı olsun — ${pathHtml(MENU.wireless)}</li>
+      <li>Firmware güncel olsun — ${pathHtml(MENU.firmware)}</li>
+      <li>Tanımadığınız cihazı engelleyin — ${pathHtml(MENU.blacklist)}</li>
+      <li>Haftalık zamanlanmış yeniden başlatma kararlılığı artırabilir — ${pathHtml(MENU.reboot)}</li>
+    </ul>`)}`;
+}
+function qosUpdate() {
+  const d = parseFloat(($('#qos-down') || {}).value) || 0, u = parseFloat(($('#qos-up') || {}).value) || 0, p = Number(($('#qos-pct') || {}).value || 92);
+  if (!$('#qos-out')) return;
+  $('#qos-pct-l').textContent = '%' + p;
+  const box = (label, mbps) => {
+    const v = mbps * p / 100, kb = Math.floor(v * 1000);
+    return `<div class="rounded-xl bg-[#0b1220] border border-[#1e2a44] p-3"><div class="text-xs text-slate-400">${label}</div>
+      <div class="text-lg font-bold">${mbps ? fmt(v) + ' Mbps' : '—'}</div>
+      ${mbps ? `<div class="flex flex-wrap gap-1 mt-1"><button class="btn btn-ghost !py-1 !px-2 text-xs" onclick="copy('${fmt(v)}')"><i data-lucide="copy"></i>${fmt(v)} Mbps</button>
+      <button class="btn btn-ghost !py-1 !px-2 text-xs" onclick="copy('${kb}')"><i data-lucide="copy"></i>${kb} Kbps</button></div>` : ''}</div>`;
+  };
+  $('#qos-out').innerHTML = box('İndirme (Download) sınırı', d) + box('Yükleme (Upload) sınırı', u);
+  icons();
+}
+document.addEventListener('input', e => { if (['qos-down', 'qos-up', 'qos-pct'].includes(e.target.id)) qosUpdate(); });
+
+/* ------------------------------------------------------------- CİHAZLAR */
+const isUnknown = d => d.online && !d.trusted && !d.name;
+function viewDevices() {
+  if (!S.agent) return needAgent('Bağlı cihaz taraması');
+  const D = S.devices;
+  const list = D ? D.devices.filter(d => S.devFilter === 'all' ? true : S.devFilter === 'unknown' ? isUnknown(d) : S.devFilter === 'offline' ? !d.online : d.online) : [];
+  const fbtn = (id, l) => `<button class="btn ${S.devFilter === id ? 'btn-primary' : 'btn-ghost'} !py-1.5 !px-3 text-xs" onclick="S.devFilter='${id}';render()">${l}</button>`;
+  return `
+  <section class="card p-5">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="smartphone"></i> Bağlı Cihazlar</h2>
+      <button class="btn btn-primary" onclick="loadDevices()" ${S.devicesLoading ? 'disabled' : ''}>${S.devicesLoading ? '<i data-lucide="loader" class="spin"></i> Taranıyor (10–30 sn)…' : '<i data-lucide="scan-search"></i> Ağı Tara'}</button>
+    </div>
+    ${D ? `<p class="text-xs text-slate-400 mt-2">${D.devices.filter(d => d.online).length} çevrimiçi · ${D.devices.length} kayıtlı · Kaynak: ${D.router ? 'modem + ağ taraması' : 'ağ taraması (192.168.1.0/24)'} · ${new Date(D.scanned_at * 1000).toLocaleTimeString('tr-TR')}</p>
+      ${D.router_error ? `<p class="text-xs text-amber-300 mt-1">Modem listesi alınamadı: ${esc(D.router_error)}</p>` : ''}
+      ${!D.router ? `<p class="text-xs text-slate-500 mt-1">İpucu: <a href="#" class="text-sky-300 underline" onclick="go('modem');return false">Modem bağlantısını</a> ayarlarsanız uyuyan telefonlar ve bant bilgisi de görünür.</p>` : ''}
+      <div class="flex gap-1.5 mt-3 flex-wrap">${fbtn('all', 'Tümü')}${fbtn('online', 'Çevrimiçi')}${fbtn('unknown', 'Bilinmeyen')}${fbtn('offline', 'Çevrimdışı')}</div>` : `<p class="text-sm text-slate-400 mt-2">192.168.1.0/24 alt ağını tarar; IP, MAC, cihaz adı ve üreticiyi listeler.</p>`}
+  </section>
+  <section class="grid sm:grid-cols-2 gap-3">${list.map(deviceCard).join('') || (D ? '<p class="text-sm text-slate-400">Bu filtrede cihaz yok.</p>' : '')}</section>`;
+}
+function deviceCard(d) {
+  const title = d.name || d.hostname || d.vendor || 'Bilinmeyen cihaz';
+  const band = d.type ? ({ host_2g: '2.4 GHz', host_5g: '5 GHz', guest_2g: 'Misafir 2.4', guest_5g: 'Misafir 5', wired: 'Kablolu' }[d.type] || d.type) : '';
+  return `<div class="card p-4 ${isUnknown(d) ? 'border-rose-500/50' : ''} ${d.online ? '' : 'opacity-60'}">
+    <div class="flex items-start justify-between gap-2">
+      <div class="min-w-0"><div class="font-semibold truncate">${esc(title)}</div>
+        <div class="text-xs text-slate-400 truncate">${esc(d.category || '')}${d.category && d.hostname ? ' · ' : ''}${d.name && d.hostname ? esc(d.hostname) : ''}</div></div>
+      <div class="flex flex-wrap gap-1 justify-end">
+        ${d.self ? '<span class="chip bg-blue-500/20 text-blue-200">Bu PC</span>' : ''}
+        ${d.trusted ? '<span class="chip bg-emerald-500/20 text-emerald-300">Güvenilir</span>' : isUnknown(d) ? '<span class="chip bg-rose-500/20 text-rose-300">Bilinmeyen</span>' : ''}
+        ${d.random_mac ? '<span class="chip bg-violet-500/20 text-violet-200" title="Telefonların gizlilik özelliği: ağa özel rastgele MAC">Özel MAC</span>' : ''}
+        ${!d.online ? '<span class="chip bg-slate-600/40 text-slate-300">Çevrimdışı</span>' : ''}
+      </div>
+    </div>
+    <dl class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-0.5 text-xs mt-3">
+      <dt class="text-slate-500">IP</dt><dd class="font-mono">${esc(d.ip || '—')}</dd>
+      <dt class="text-slate-500">MAC</dt><dd class="font-mono">${esc(d.mac.toUpperCase())}</dd>
+      <dt class="text-slate-500">Üretici</dt><dd>${esc(d.vendor || 'Bilinmiyor')}</dd>
+      ${band ? `<dt class="text-slate-500">Bağlantı</dt><dd>${esc(band)}${d.signal ? ` · sinyal ${esc(d.signal)}` : ''}</dd>` : ''}
+    </dl>
+    <div class="flex gap-1.5 mt-3 flex-wrap">
+      <button class="btn btn-ghost !py-1.5 !px-3 text-xs" onclick="editDevice('${d.mac}')"><i data-lucide="pencil"></i> Düzenle</button>
+      ${!d.trusted ? `<button class="btn btn-ghost !py-1.5 !px-3 text-xs" onclick="setTrusted('${d.mac}', true)"><i data-lucide="shield-check"></i> Güvenilir</button>` : ''}
+      ${!d.self && d.ip !== GATEWAY ? `<button class="btn btn-danger !py-1.5 !px-3 text-xs" onclick="blockDevice('${d.mac}')"><i data-lucide="ban"></i> MAC Kopyala & EX20v'de Engelle</button>` : ''}
+    </div>
+  </div>`;
+}
+function afterDevices() { if (S.agent && !S.devices && !S.devicesLoading) loadDevices(); }
+async function loadDevices() {
+  S.devicesLoading = true; if (S.tab === 'cihazlar') render();
+  try { S.devices = await api('/api/devices'); }
+  catch (e) { toast('Tarama hatası: ' + e.message, 5000); }
+  finally { S.devicesLoading = false; render(); }
+}
+const findDev = mac => S.devices.devices.find(d => d.mac === mac);
+function editDevice(mac) {
+  const d = findDev(mac);
+  modal(`<h3 class="font-bold mb-3">Cihazı düzenle</h3>
+    <p class="text-xs text-slate-400 font-mono mb-3">${esc(mac.toUpperCase())} · ${esc(d.ip || '')}</p>
+    <label class="text-sm text-slate-300 block">Özel ad<input id="ed-name" value="${esc(d.name)}" maxlength="60" placeholder="${esc(d.hostname || 'ör. Salon TV')}"></label>
+    <label class="text-sm text-slate-300 block mt-3">Kategori<select id="ed-cat"><option value="">—</option>${CATEGORIES.map(c => `<option ${c === d.category ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    <label class="flex items-center gap-2 mt-3 text-sm"><input type="checkbox" id="ed-trust" class="!w-4 !h-4" ${d.trusted ? 'checked' : ''}> Güvenilir cihaz</label>
+    <div class="flex gap-2 mt-5"><button class="btn btn-primary flex-1" onclick="saveDevice('${mac}')"><i data-lucide="save"></i> Kaydet</button><button class="btn btn-ghost" data-close>İptal</button></div>`);
+}
+async function saveDevice(mac) {
+  const body = { name: $('#ed-name').value, category: $('#ed-cat').value, trusted: $('#ed-trust').checked };
+  try { await api(`/api/devices/${encodeURIComponent(mac)}`, { method: 'PUT', body: JSON.stringify(body) }); Object.assign(findDev(mac), body); closeModal(); render(); toast('Kaydedildi'); }
+  catch (e) { toast('Kaydedilemedi: ' + e.message); }
+}
+async function setTrusted(mac, v) {
+  try { await api(`/api/devices/${encodeURIComponent(mac)}`, { method: 'PUT', body: JSON.stringify({ trusted: v }) }); findDev(mac).trusted = v; render(); }
+  catch (e) { toast('Hata: ' + e.message); }
+}
+async function blockDevice(mac) {
+  const d = findDev(mac), MAC = mac.toUpperCase().replace(/:/g, '-');
+  await copy(MAC, 'MAC kopyalandı');
+  let auto = '';
+  if (S.agent.info.router_configured && S.devices && S.devices.can_block) {
+    auto = `<button class="btn btn-danger w-full mt-3" onclick="routerBlock('${mac}')"><i data-lucide="ban"></i> Modemde şimdi engelle</button>`;
+  }
+  modal(`<h3 class="font-bold mb-2 flex items-center gap-2"><i data-lucide="ban"></i> Cihazı engelle</h3>
+    <p class="text-sm text-slate-300"><b>${esc(d.name || d.hostname || 'Cihaz')}</b> — MAC panoya kopyalandı:</p>
+    <p class="font-mono text-lg my-2">${esc(MAC)}</p>
+    <ol class="list-decimal pl-5 text-sm text-slate-300 space-y-1.5">
+      <li>${modemLink} adresini açıp giriş yapın.</li>
+      <li>${pathHtml(MENU.blacklist)}</li>
+      <li>Erişim Kontrolü'nü açın, mod: <b>Kara Liste</b>.</li>
+      <li><b>Ekle</b> → MAC alanına yapıştırın → Kaydet.</li>
+    </ol>
+    ${d.random_mac ? '<p class="text-xs text-violet-200 mt-3">Not: Bu cihaz rastgele (özel) MAC kullanıyor; telefonu sıfırlarsa veya ağı unutursa yeni MAC alır.</p>' : ''}
+    ${auto}<button class="btn btn-ghost w-full mt-3" data-close>Kapat</button>`);
+}
+async function routerBlock(mac) {
+  try {
+    const r = await api('/api/router/block', { method: 'POST', body: JSON.stringify({ mac, name: findDev(mac).name || '' }) });
+    toast(r.ok ? 'Modem kara listesine eklendi' : 'Bu modem otomatik engellemeyi desteklemiyor — menü yolunu kullanın', 4000);
+    if (r.ok) closeModal();
+  } catch (e) { toast(keyHint(e) || 'Engellenemedi: ' + e.message, 5000); }
+}
+const keyHint = e => e.status === 401 ? 'Ajan anahtarı gerekli: Ayarlar sekmesine baslat.bat penceresindeki 6 haneli anahtarı girin' : '';
+
+/* ------------------------------------------------------------- uyarı çubuğu */
+function renderAlert() {
+  const bar = $('#alert-bar'); const unknown = S.devices ? S.devices.devices.filter(isUnknown) : [];
+  if (!unknown.length || S.tab === 'cihazlar' && S.devFilter === 'unknown') { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  bar.innerHTML = `<button onclick="S.devFilter='unknown';go('cihazlar')" class="w-full text-left rounded-xl border border-rose-500/50 bg-rose-500/10 px-4 py-3 text-sm flex items-center gap-2">
+    <i data-lucide="alert-triangle" class="text-rose-300"></i><span><b>${unknown.length} bilinmeyen cihaz</b> ağınızda. İncelemek için dokunun.</span></button>`;
+}
+
+/* ------------------------------------------------------------- WI-FI KANAL */
+function viewWifi() {
+  if (!S.agent) return needAgent('Wi-Fi 6 kanal analizi');
+  if (!S.agent.info.wifi_supported) return `<section class="card p-5 text-sm text-slate-300">Kanal analizi Windows'un <code>netsh wlan</code> komutunu kullanır; ajan şu an ${esc(S.agent.info.platform)} üzerinde çalışıyor.</section>`;
+  const W = S.wifi, i = W && W.interface, r = W && W.recommendation;
+  return `
+  <section class="card p-5">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="radio-tower"></i> Wi-Fi 6 Kanal Analizörü</h2>
+      <button class="btn btn-primary" onclick="loadWifi()" ${S.wifiLoading ? 'disabled' : ''}>${S.wifiLoading ? '<i data-lucide="loader" class="spin"></i> Taranıyor…' : '<i data-lucide="refresh-cw"></i> Yeniden Tara'}</button>
+    </div>
+    ${S.wifiError ? `<p class="text-sm text-amber-300 mt-3">${esc(S.wifiError)}</p>` : ''}
+    ${i ? `<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+      ${stat('Ağ (SSID)', esc(i.ssid || '—'), i.connected ? 'bağlı' : 'bağlı değil', 'wifi')}
+      ${stat('Bant / Kanal', (i.band ? i.band + ' GHz' : '—'), 'kanal ' + (i.channel ?? '—'), 'radio')}
+      ${stat('Sinyal', i.signal != null ? '%' + i.signal : '—', esc(i.radio || ''), 'signal')}
+      ${stat('Bağlantı hızı', i.rx ?? '—', `Mbps (gönderim ${i.tx ?? '—'})`, 'activity')}
+    </div>` : ''}
+  </section>
+  ${W && W.smart_connect_warning ? `<section class="rounded-xl border border-amber-500/50 bg-amber-500/10 p-4 text-sm">
+    <div class="font-semibold text-amber-200 flex items-center gap-2"><i data-lucide="alert-triangle"></i> 2.4 GHz'de takılı kaldınız</div>
+    <p class="text-slate-300 mt-1">Bu bilgisayar 5 GHz yerine 2.4 GHz'e bağlı${W.own_5g_visible ? ' (modeminizin 5 GHz yayını görünüyor)' : ''}. Smart Connect bantlar arasında doğru seçim yapmıyorsa kapatıp 5 GHz'e ayrı ad verin ve cihazı ona bağlayın.</p>
+    <div class="mt-2">${pathHtml(MENU.smartConnect)}</div></section>` : ''}
+  ${r ? `<section class="card p-5">
+    <h3 class="font-semibold mb-2">Öneri <span class="text-xs text-slate-400 font-normal">${r.neighbors} komşu erişim noktası</span></h3>
+    <div class="grid sm:grid-cols-2 gap-3 text-sm">
+      <div class="rounded-xl bg-[#0b1220] border border-[#1e2a44] p-3"><div class="text-xs text-slate-400">2.4 GHz · 20 MHz</div>
+        <div class="text-2xl font-bold text-emerald-300">Kanal ${r.best_24}</div>
+        <div class="text-xs text-slate-400">Yük: ${[1, 6, 11].map(c => `${c}: ${r.load_24[c]}`).join(' · ')}</div></div>
+      <div class="rounded-xl bg-[#0b1220] border border-[#1e2a44] p-3"><div class="text-xs text-slate-400">5 GHz · 80 MHz</div>
+        <div class="text-2xl font-bold text-emerald-300">Kanal ${r.best_5.channel}</div>
+        <div class="text-xs text-slate-400">${r.best_5.dfs ? 'DFS kanalı: radar algılanırsa modem geçici olarak kanal değiştirir.' : '36–48 bloğu (DFS yok, en uyumlu)'}</div></div>
+    </div>
+    <div class="mt-3 flex flex-wrap gap-2 items-center">${pathHtml(MENU.wireless)} ${modemLink}</div>
+  </section>
+  <section class="card p-4"><h3 class="font-semibold text-sm mb-2">2.4 GHz kanal yoğunluğu</h3><div class="h-52"><canvas id="ch24"></canvas></div></section>
+  <section class="card p-4"><h3 class="font-semibold text-sm mb-2">5 GHz kanal yoğunluğu</h3><div class="h-52"><canvas id="ch5"></canvas></div></section>
+  <section class="card p-4 overflow-x-auto"><h3 class="font-semibold text-sm mb-2">Görünen ağlar</h3>
+    <table class="w-full text-xs"><thead class="text-slate-400"><tr><th class="text-left py-1">SSID</th><th>Bant</th><th>Kanal</th><th>Sinyal</th></tr></thead><tbody>
+    ${[...W.networks].sort((a, b) => b.signal - a.signal).slice(0, 40).map(n => `<tr class="border-t border-[#1e2a44] ${i && n.ssid === i.ssid ? 'text-sky-300' : ''}"><td class="py-1 pr-2 truncate max-w-[10rem]">${esc(n.ssid || '(gizli)')}</td><td class="text-center">${n.band}</td><td class="text-center">${n.channel}</td><td class="text-center">%${n.signal}</td></tr>`).join('')}
+    </tbody></table></section>` : (!S.wifiError ? '<p class="text-sm text-slate-400">Tarama yapılıyor…</p>' : '')}`;
+}
+function afterWifi() {
+  if (S.agent && S.agent.info.wifi_supported && !S.wifi && !S.wifiLoading && !S.wifiError) { loadWifi(); return; }
+  const W = S.wifi; if (!W || !window.Chart || !$('#ch24')) return;
+  const own = W.interface && W.interface.ssid;
+  const mk = (id, band, chans) => {
+    const others = W.networks.filter(n => n.band === band && n.ssid !== own), mine = W.networks.filter(n => n.band === band && n.ssid === own);
+    const sum = (arr, c) => arr.filter(n => n.channel === c).reduce((t, n) => t + n.signal, 0);
+    S.charts[id] = new Chart($('#' + id), {
+      type: 'bar',
+      data: { labels: chans, datasets: [
+        { label: 'Komşu ağlar (toplam sinyal %)', data: chans.map(c => sum(others, c)), backgroundColor: '#f43f5e99', stack: 's' },
+        { label: 'Sizin ağınız', data: chans.map(c => sum(mine, c)), backgroundColor: '#38bdf8', stack: 's' }] },
+      options: chartOpts({ stacked: true }),
+    });
+  };
+  mk('ch24', '2.4', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+  const c5 = [...new Set([36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, ...W.networks.filter(n => n.band === '5').map(n => n.channel)])].sort((a, b) => a - b);
+  mk('ch5', '5', c5);
+}
+async function loadWifi() {
+  S.wifiLoading = true; S.wifiError = null; if (S.tab === 'wifi') render();
+  try { S.wifi = await api('/api/wifi'); }
+  catch (e) { S.wifiError = (e.body && e.body.detail) || e.message; }
+  finally { S.wifiLoading = false; if (S.tab === 'wifi') render(); }
+}
+function chartOpts({ stacked = false, y2 = false } = {}) {
+  const grid = { color: '#1e2a44' }, ticks = { color: '#94a3b8', font: { size: 11 } };
+  const o = { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { labels: { color: '#cbd5e1', boxWidth: 12, font: { size: 11 } } } },
+    scales: { x: { stacked, grid, ticks }, y: { stacked, grid, ticks, beginAtZero: true } } };
+  if (y2) o.scales.y2 = { position: 'right', grid: { display: false }, ticks, beginAtZero: true, title: { display: true, text: 'ms', color: '#94a3b8' } };
+  return o;
+}
+
+/* ------------------------------------------------------------- MODEM */
+function viewModem() {
+  if (!S.agent) return `${needAgent('Modemi doğrudan kontrol (Wi-Fi aç/kapa, yeniden başlatma, cihaz listesi)')}
+    <section class="card p-5 text-sm space-y-2"><h3 class="font-semibold">Hızlı menü rehberi</h3>
+      ${Object.entries({ 'Kablosuz ayarları': MENU.wireless, 'DNS (DHCP)': MENU.dhcp, 'QoS': MENU.qos, 'Cihaz engelleme': MENU.blacklist, 'Yeniden başlatma': MENU.reboot, 'Firmware': MENU.firmware })
+        .map(([k, v]) => `<div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3"><span class="text-slate-400 w-36 shrink-0">${k}</span>${pathHtml(v)}</div>`).join('')}
+      <div class="pt-2">${modemLink}</div></section>`;
+  const cfgd = S.agent.info.router_configured, R = S.router;
+  const form = `<section class="card p-5">
+    <h2 class="font-semibold flex items-center gap-2"><i data-lucide="key-round"></i> Modem bağlantısı</h2>
+    <p class="text-sm text-slate-400 mt-1">Ajan, EX20v web arayüzüne sizin yerinize giriş yapar (açık kaynak <a class="text-sky-300 underline" href="https://github.com/AlexandrErohin/TP-Link-Archer-C6U" target="_blank" rel="noopener">tplinkrouterc6u</a>). Parola yalnızca bu bilgisayarda, ajan klasöründe saklanır.</p>
+    <div class="grid sm:grid-cols-3 gap-3 mt-3">
+      <label class="text-xs text-slate-400">Adres<input id="rt-host" value="${esc(S.agent.info.router_host || GATEWAY)}"></label>
+      <label class="text-xs text-slate-400">Kullanıcı adı<input id="rt-user" value="user"></label>
+      <label class="text-xs text-slate-400">Yerel yönetici parolası<input id="rt-pass" type="password" autocomplete="current-password"></label>
+    </div>
+    <p class="text-[11px] text-slate-500 mt-2">EX serisi modemlerde kullanıcı adı genelde <b>user</b>'dır (arayüz sormasa bile). TP-Link ID ile giriş desteklenmez; yerel parolayı kullanın. Tarayıcıda modem arayüzü açıkken ajan giriş yapamaz (tek oturum).</p>
+    <div class="flex gap-2 mt-3"><button class="btn btn-primary" onclick="saveRouter()"><i data-lucide="link"></i> Bağlan & kaydet</button>
+      ${cfgd ? '<button class="btn btn-ghost" onclick="forgetRouter()"><i data-lucide="unlink"></i> Parolayı unut</button>' : ''}</div>
+  </section>`;
+  if (!cfgd) return form;
+  const wifiBtn = (k, l) => {
+    const on = R && R.wifi[k]; if (on == null) return '';
+    return `<div class="flex items-center justify-between rounded-xl bg-[#0b1220] border border-[#1e2a44] p-3"><span class="text-sm">${l}</span>
+      <button class="btn ${on ? 'btn-primary' : 'btn-ghost'} !py-1 !px-3 text-xs" onclick="toggleWifi('${k}', ${!on})">${on ? 'Açık' : 'Kapalı'}</button></div>`;
+  };
+  const up = R && R.wan_uptime ? `${Math.floor(R.wan_uptime / 86400)} g ${Math.floor(R.wan_uptime % 86400 / 3600)} sa` : '—';
+  return `
+  <section class="card p-5">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="router"></i> EX20v Durumu</h2>
+      <button class="btn btn-ghost" onclick="loadRouter()" ${S.routerLoading ? 'disabled' : ''}>${S.routerLoading ? '<i data-lucide="loader" class="spin"></i>' : '<i data-lucide="refresh-cw"></i>'} Yenile</button>
+    </div>
+    ${S.routerError ? `<p class="text-sm text-amber-300 mt-3">${esc(S.routerError)}</p>` : ''}
+    ${R ? `<p class="text-xs text-slate-400 mt-1">${esc((R.firmware && [R.firmware.model, R.firmware.hardware, R.firmware.firmware].filter(Boolean).join(' · ')) || R.client)}</p>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+      ${stat('WAN IP', esc(R.wan_ip || '—'), esc(R.conn_type || ''), 'globe')}${stat('Çalışma süresi', up, 'WAN', 'clock')}
+      ${stat('İstemci', R.clients_total ?? '—', `Wi-Fi ${R.wifi_clients ?? 0} · kablolu ${R.wired_clients ?? 0}`, 'users')}
+      ${stat('CPU / Bellek', R.cpu != null ? '%' + fmt(R.cpu * (R.cpu <= 1 ? 100 : 1), 0) : '—', R.mem != null ? 'bellek %' + fmt(R.mem * (R.mem <= 1 ? 100 : 1), 0) : '', 'cpu')}
+    </div>` : (!S.routerError ? '<p class="text-sm text-slate-400 mt-3">Modemden bilgi alınıyor…</p>' : '')}
+  </section>
+  ${R ? `<section class="card p-5"><h3 class="font-semibold mb-3 flex items-center gap-2"><i data-lucide="wifi"></i> Kablosuz yayınlar</h3>
+    <div class="grid sm:grid-cols-2 gap-2">${wifiBtn('host_2g', 'Ana ağ 2.4 GHz')}${wifiBtn('host_5g', 'Ana ağ 5 GHz')}${wifiBtn('guest_2g', 'Misafir 2.4 GHz')}${wifiBtn('guest_5g', 'Misafir 5 GHz')}</div>
+    <p class="text-[11px] text-slate-500 mt-2">Bağlı olduğunuz bandı kapatırsanız bu cihazın bağlantısı kopar.</p></section>
+  <section class="card p-5"><h3 class="font-semibold mb-2 flex items-center gap-2"><i data-lucide="power"></i> Bakım</h3>
+    <button class="btn btn-danger" onclick="rebootRouter()"><i data-lucide="rotate-ccw"></i> Modemi yeniden başlat</button>
+    <p class="text-[11px] text-slate-500 mt-2">İnternet ~2 dakika kesilir.</p></section>` : ''}
+  ${form}`;
+}
+function afterModem() { if (S.agent && S.agent.info.router_configured && !S.router && !S.routerLoading && !S.routerError) loadRouter(); }
+async function loadRouter() {
+  S.routerLoading = true; S.routerError = null; if (S.tab === 'modem') render();
+  try { S.router = await api('/api/router/status'); }
+  catch (e) { S.routerError = e.message; }
+  finally { S.routerLoading = false; if (S.tab === 'modem') render(); }
+}
+async function saveRouter() {
+  const body = { host: $('#rt-host').value, username: $('#rt-user').value, password: $('#rt-pass').value };
+  if (!body.password) return toast('Parola girin');
+  toast('Modeme bağlanılıyor…', 8000);
+  try {
+    const r = await api('/api/router/config', { method: 'POST', body: JSON.stringify(body) });
+    S.agent.info.router_configured = true; S.router = null; S.routerError = null;
+    toast('Modem bağlandı: ' + (r.firmware && r.firmware.model || r.client)); render();
+  } catch (e) { toast(keyHint(e) || 'Bağlanamadı: ' + e.message, 7000); }
+}
+async function forgetRouter() {
+  try { await api('/api/router/config', { method: 'DELETE' }); S.agent.info.router_configured = false; S.router = null; render(); toast('Parola silindi'); }
+  catch (e) { toast(keyHint(e) || e.message); }
+}
+async function toggleWifi(band, enable) {
+  if (!enable && !confirm('Bu kablosuz yayın kapatılsın mı?')) return;
+  try { await api('/api/router/wifi', { method: 'POST', body: JSON.stringify({ band, enable }) }); toast('Uygulandı'); S.router.wifi[band] = enable; render(); setTimeout(loadRouter, 4000); }
+  catch (e) { toast(keyHint(e) || 'Hata: ' + e.message, 5000); }
+}
+async function rebootRouter() {
+  if (!confirm('Modem yeniden başlatılsın mı? İnternet yaklaşık 2 dakika kesilir.')) return;
+  try { await api('/api/router/reboot', { method: 'POST' }); toast('Yeniden başlatılıyor…', 5000); S.router = null; }
+  catch (e) { toast(keyHint(e) || 'Hata: ' + e.message, 5000); }
+}
+
+/* ------------------------------------------------------------- GEÇMİŞ */
+async function loadHistory() {
+  if (S.agent) { try { S.history = (await api('/api/history')).items; return; } catch { } }
+  S.history = store.get('history', []).slice().sort((a, b) => b.ts - a.ts);
+}
+async function saveMeasurement(m) {
+  if (S.agent) { try { await api('/api/history', { method: 'POST', body: JSON.stringify(m) }); await loadHistory(); return; } catch { } }
+  const h = store.get('history', []); h.push(m); store.set('history', h.slice(-500)); await loadHistory();
+}
+function viewHistory() {
+  const H = S.history, local = store.get('history', []);
+  const [a, b] = H; const diff = (k, better) => {
+    if (!a || !b || a[k] == null || b[k] == null) return '—';
+    const d = a[k] - b[k], good = better === 'up' ? d >= 0 : d <= 0;
+    return `<span class="${good ? 'text-emerald-300' : 'text-rose-300'}">${d >= 0 ? '+' : ''}${fmt(d, k === 'download' || k === 'upload' ? 1 : 0)}</span>`;
+  };
+  return `
+  <section class="card p-5">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="line-chart"></i> Ölçüm geçmişi</h2>
+      <span class="chip bg-slate-700/60 text-slate-300">${S.agent ? 'SQLite (ajan)' : 'Bu tarayıcı (LocalStorage)'} · ${H.length} kayıt</span>
+    </div>
+    ${H.length ? `<div class="h-64 mt-4"><canvas id="hist"></canvas></div>` : '<p class="text-sm text-slate-400 mt-3">Henüz kayıt yok.</p>'}
+  </section>
+  ${a && b ? `<section class="card p-5"><h3 class="font-semibold mb-2">Son iki ölçüm: önce → sonra</h3>
+    <p class="text-xs text-slate-400 mb-3">${esc(b.note || new Date(b.ts).toLocaleString('tr-TR'))} → ${esc(a.note || new Date(a.ts).toLocaleString('tr-TR'))}</p>
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-sm">
+      ${[['İndirme', 'download', 'up', 'Mbps'], ['Yükleme', 'upload', 'up', 'Mbps'], ['Ping', 'ping', 'down', 'ms'], ['Bufferbloat', 'bufferbloat', 'down', 'ms'], ['Puan', 'score', 'up', '']]
+        .map(([l, k, bt, u]) => `<div class="rounded-xl bg-[#0b1220] border border-[#1e2a44] p-3"><div class="text-xs text-slate-400">${l}</div><div class="font-bold">${diff(k, bt)} <span class="text-xs text-slate-500">${u}</span></div></div>`).join('')}
+    </div></section>` : ''}
+  <section class="card p-4 overflow-x-auto"><table class="w-full text-xs"><thead class="text-slate-400"><tr><th class="text-left py-1">Tarih</th><th>↓ Mbps</th><th>↑ Mbps</th><th>Ping</th><th>BB</th><th>Puan</th><th class="text-left">Not</th><th></th></tr></thead><tbody>
+    ${H.slice(0, 100).map((m, idx) => `<tr class="border-t border-[#1e2a44]"><td class="py-1.5 pr-2 whitespace-nowrap">${new Date(m.ts).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}</td>
+      <td class="text-center">${fmt(m.download)}</td><td class="text-center">${fmt(m.upload)}</td><td class="text-center">${fmt(m.ping, 0)}</td><td class="text-center">${bbGrade(m.bufferbloat)}</td>
+      <td class="text-center ${scoreColor(m.score)}">${m.score ?? '—'}</td><td class="pr-2 max-w-[8rem] truncate">${esc(m.note || '')}</td>
+      <td><button class="text-slate-500 hover:text-rose-300" title="Sil" onclick="delHistory(${idx})"><i data-lucide="trash-2"></i></button></td></tr>`).join('')}
+  </tbody></table></section>
+  <section class="flex flex-wrap gap-2">
+    <button class="btn btn-ghost" onclick="exportHistory()"><i data-lucide="download"></i> JSON dışa aktar</button>
+    ${S.agent && local.length ? `<button class="btn btn-ghost" onclick="importLocal()"><i data-lucide="upload"></i> Tarayıcıdaki ${local.length} kaydı ajana aktar</button>` : ''}
+  </section>`;
+}
+function afterHistory() {
+  if (!S.history.length || !$('#hist') || !window.Chart) return;
+  const H = [...S.history].reverse(), lab = H.map(m => new Date(m.ts).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }));
+  S.charts.hist = new Chart($('#hist'), {
+    type: 'line',
+    data: { labels: lab, datasets: [
+      { label: 'İndirme Mbps', data: H.map(m => m.download), borderColor: '#38bdf8', backgroundColor: '#38bdf8', tension: .3, yAxisID: 'y' },
+      { label: 'Yükleme Mbps', data: H.map(m => m.upload), borderColor: '#a78bfa', backgroundColor: '#a78bfa', tension: .3, yAxisID: 'y' },
+      { label: 'Ping ms', data: H.map(m => m.ping), borderColor: '#34d399', backgroundColor: '#34d399', tension: .3, yAxisID: 'y2' },
+      { label: 'Bufferbloat ms', data: H.map(m => m.bufferbloat), borderColor: '#fb7185', backgroundColor: '#fb7185', borderDash: [4, 3], tension: .3, yAxisID: 'y2' }] },
+    options: chartOpts({ y2: true }),
+  });
+}
+async function delHistory(idx) {
+  const m = S.history[idx]; if (!m || !confirm('Bu kayıt silinsin mi?')) return;
+  if (S.agent && m.id != null) { try { await api(`/api/history/${m.id}`, { method: 'DELETE' }); } catch (e) { return toast(e.message); } }
+  else store.set('history', store.get('history', []).filter(x => x.ts !== m.ts));
+  await loadHistory(); render();
+}
+function exportHistory() {
+  const blob = new Blob([JSON.stringify(S.history, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `ex20v-gecmis-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+async function importLocal() {
+  try { await api('/api/history', { method: 'POST', body: JSON.stringify(store.get('history', [])) }); store.set('history', []); await loadHistory(); render(); toast('Aktarıldı'); }
+  catch (e) { toast('Aktarılamadı: ' + e.message); }
+}
+
+/* ------------------------------------------------------------- AYARLAR */
+function viewSettings() {
+  const s = S.settings;
+  return `
+  <section class="card p-5 space-y-3">
+    <h2 class="font-semibold flex items-center gap-2"><i data-lucide="settings"></i> Ayarlar</h2>
+    <label class="block text-sm text-slate-300">Abonelik hızı (Mbps) — puanlama için
+      <div class="grid grid-cols-2 gap-2 mt-1"><input id="st-down" type="number" min="0" placeholder="İndirme" value="${s.planDown || ''}"><input id="st-up" type="number" min="0" placeholder="Yükleme" value="${s.planUp || ''}"></div></label>
+    <label class="block text-sm text-slate-300">Test süresi (her yön)
+      <select id="st-dur" class="mt-1">${[6, 10, 15].map(v => `<option value="${v}" ${Number(s.duration) === v ? 'selected' : ''}>${v} saniye${v === 6 ? ' (az veri)' : v === 10 ? ' (önerilen)' : ' (daha kararlı)'}</option>`).join('')}</select></label>
+    <label class="block text-sm text-slate-300">Yerel ajan adresi (isteğe bağlı)
+      <input id="st-url" class="mt-1" placeholder="http://localhost:${AGENT_PORT}" value="${esc(s.agentUrl)}"></label>
+    <label class="block text-sm text-slate-300">Ajan anahtarı (telefondan modem işlemleri için)
+      <input id="st-key" class="mt-1" inputmode="numeric" maxlength="12" placeholder="baslat.bat penceresindeki 6 haneli sayı" value="${esc(s.key)}"></label>
+    <div class="flex gap-2 flex-wrap"><button class="btn btn-primary" onclick="saveSettingsForm()"><i data-lucide="save"></i> Kaydet</button>
+      <button class="btn btn-ghost" onclick="recheckAgent()"><i data-lucide="refresh-cw"></i> Ajanı tekrar ara</button></div>
+  </section>
+  <section class="card p-5 text-sm text-slate-300 space-y-2">
+    <h3 class="font-semibold">Mod durumu</h3>
+    ${S.agent ? `<p>Yerel ajan: <b>${esc(S.agent.base)}</b> · v${esc(S.agent.info.version)} · ${esc(S.agent.info.platform)}</p>` : `<p>Ajan bulunamadı — Bulut/Tarayıcı Modu.</p>${agentHelp()}`}
+  </section>
+  <section class="card p-5 text-sm text-slate-300 space-y-2">
+    <h3 class="font-semibold">Veri</h3>
+    <button class="btn btn-danger" onclick="if(confirm('Bu tarayıcıdaki tüm kayıt ve ayarlar silinsin mi?')){Object.keys(localStorage).filter(k=>k.startsWith('ex20v.')).forEach(k=>localStorage.removeItem(k));location.reload()}"><i data-lucide="trash-2"></i> Tarayıcı verilerini sil</button>
+    <p class="text-xs text-slate-500">EX20v Ağ Kontrol Merkezi v${VERSION} · Açık kaynak · Veriler yalnızca bu cihazda / yerel ajanda tutulur.</p>
+  </section>`;
+}
+function saveSettingsForm() {
+  Object.assign(S.settings, { planDown: Number($('#st-down').value) || 0, planUp: Number($('#st-up').value) || 0, duration: Number($('#st-dur').value) || 10, agentUrl: $('#st-url').value.trim(), key: $('#st-key').value.trim() });
+  saveSettings(); toast('Kaydedildi');
+}
+
+/* ------------------------------------------------------------- başlat */
+$('#app-version').textContent = 'v' + VERSION;
+document.title = `EX20v Ağ Kontrol Merkezi v${VERSION}`;
+renderBadge(); render();
+loadHistory().then(() => S.tab === 'gecmis' && render());
+detectAgent();
+if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => { });
+</script>
+</body>
+</html>

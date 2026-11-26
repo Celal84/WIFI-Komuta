@@ -41,3 +41,15 @@ Nasıl: Ayrıca söylenmesini bekleme, izin sorma, adımlar arasında bekleme ya
 ## 3. Yeni repo
 1. "Yeni repo aç" talimatı geldiğinde repoyu bu dosyayı (CLAUDE.md) içerecek şekilde oluştur.
 2. Bu kural yalnızca yeni açılan repolar için geçerlidir; mevcut repolara CLAUDE.md ekleme.
+
+## 4. Proje mimarisi (EX20v Ağ Kontrol Merkezi)
+- `index.html`: tek dosya PWA (Tailwind/Chart.js/Lucide CDN, Vanilla JS). Derleme yok, GitHub Pages'te çalışır.
+- `agent/server.py`: FastAPI yerel ajan (0.0.0.0:8080). API + arayüz dosyalarını (beyaz liste) sunar.
+  - `netutil.py` (ping, ARP taraması, DNS kıyası, OUI), `netsh_parser.py` (TR/EN netsh ayrıştırma + kanal önerisi), `router.py` (tplinkrouterc6u ile EX20v kontrolü).
+  - Veriler `agent/data/` (SQLite, config.json, manuf önbelleği) — git'e girmez.
+- Hibrit mod: arayüz açılışta `/api/health`'e 1.5 sn istek atar; ajan varsa tam mod, yoksa tarayıcı modu.
+- Güvenlik: CORS yalnızca `https://celal84.github.io` + localhost; başka kökenden POST reddedilir; modemi değiştiren işlemler localhost dışından `X-Agent-Key` ister.
+- HTTPS (Pages) sayfası LAN IP'deki HTTP ajana bağlanamaz → telefonda `http://PC-IP:8080` kullanılır.
+- Modem menü yolları `index.html` → `MENU` nesnesinde tek yerde.
+- Sürüm 4 yerde birlikte güncellenir: `VERSION`, `index.html`, `agent/server.py`, `sw.js`. Tag adı: `EX20v_Ag_Kontrol_Merkezi_vX.Y.Z`.
+- Test: `python -m unittest discover -s agent/tests`.
