@@ -26,7 +26,7 @@ import netsh_parser  # noqa: E402
 import netutil  # noqa: E402
 import router  # noqa: E402
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 APP_NAME = "EX20v Ağ Kontrol Merkezi"
 AGENT_DIR = Path(__file__).resolve().parent
 ROOT = AGENT_DIR.parent
