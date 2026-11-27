@@ -48,8 +48,11 @@ Nasıl: Ayrıca söylenmesini bekleme, izin sorma, adımlar arasında bekleme ya
   - Dil: sade Türkçe; teknik terimler yalnızca "Teknik ayrıntılar" altında.
 - `agent/server.py`: FastAPI yerel ajan (0.0.0.0:8080). API + arayüz dosyalarını (beyaz liste) sunar.
   - `netutil.py` (ping, ARP taraması, DNS kıyası, OUI), `netsh_parser.py` (TR/EN netsh ayrıştırma + kanal önerisi), `router.py` (tplinkrouterc6u ile EX20v kontrolü).
+  - `credentials.py`: markaya göre fabrika varsayılanı kullanıcı adı/parola kütüphanesi + marka algılama (yalnızca kullanıcının kendi modemine giriş içindir).
   - Veriler `agent/data/` (SQLite, config.json, manuf önbelleği) — git'e girmez.
 - Hibrit mod: arayüz açılışta `/api/health`'e 1.5 sn istek atar; ajan varsa tam mod, yoksa tarayıcı modu.
+- Ağ Doktoru / Tek Tuşla Optimize (`optimize` alt sayfası): `analyze()` sorunlarından sıralı bir düzeltme planı kurar. Otomatik (modem API'si destekliyorsa, ör. kapalı 5 GHz'i açma) + rehberli (kanal/DNS/QoS — modem sayfasını açar). EX20v'de tplinkrouterc6u yalnızca bant aç/kapat ve reboot destekler; kanal/DNS/QoS körlemesine yazılmaz.
+- Varsayılan şifreyle giriş: `/api/router/detect` (markayı HTTP ile tahmin) + `/api/router/try-defaults` (sıralı varsayılanları dener, çalışanı bildirir, varsayılan parola güvenlik uyarısıyla). Parolayı kaydetmez; kullanıcı onayıyla kaydedilir. Deneme sayısı modemi kilitlememek için sınırlı.
 - Telefon eşleştirme: bilgisayardaki sayfa `http://PC-IP:8080/#k=ANAHTAR` adresini QR olarak gösterir. HTTPS (Pages) sayfası LAN'daki HTTP ajana bağlanamaz; telefon bu adresi açar. Ajan, kendi sunduğu sayfada Ana Ekran adını "Ev Ağım" yapar ve manifest'ten `start_url`'i çıkarır.
 - Güvenlik: CORS yalnızca `https://celal84.github.io` + localhost; başka kökenden POST reddedilir; modemi değiştiren işlemler localhost dışından `X-Agent-Key` ister (arayüz 401'de anahtarı sorar).
 - Ölçüm: ping = tarayıcı ağ zamanlaması (Resource Timing) − Cloudflare `server-timing` içindeki **tüm** `dur` değerleri. Yöntem değişirse `MV` artırılır; eski kayıtlar özet ve karşılaştırmada kullanılmaz.

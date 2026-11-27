@@ -22,11 +22,12 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import credentials  # noqa: E402
 import netsh_parser  # noqa: E402
 import netutil  # noqa: E402
 import router  # noqa: E402
 
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 APP_NAME = "EX20v Ağ Kontrol Merkezi"
 HOME_TITLE = "Ev Ağım"  # telefonda Ana Ekran simgesinin adı (internet sürümü: "Ağ Kontrol")
 AGENT_DIR = Path(__file__).resolve().parent
@@ -159,6 +160,7 @@ def health(request: Request):
         "ok": True, "app": APP_NAME, "version": VERSION, "platform": platform.system(),
         "hostname": socket.gethostname(), "pc_ip": netutil.local_ip(CFG["router_host"]), "port": PORT,
         "router_host": CFG["router_host"], "router_configured": bool(CFG.get("router_password")),
+        "router_pw_default": bool(CFG.get("router_password")) and credentials.is_default(CFG.get("router_user", ""), CFG.get("router_password", "")),
         "router_lib": router.AVAILABLE, "wifi_supported": netutil.IS_WIN,
         "key_required": not _is_loopback(request),
     }
@@ -312,6 +314,37 @@ class MacBody(BaseModel):
     name: str = ""
 
 
+class TryDefaults(BaseModel):
+    host: str = "192.168.1.1"
+    save: bool = False                 # bulunan bilgiyi kaydet (otomatik giriş)
+    username: str | None = None        # kullanıcının bildiği çift (varsa önce denenir)
+    password: str | None = None
+
+
+@app.get("/api/router/detect")
+def api_router_detect(host: str | None = None):
+    try:
+        return router.detect_brand((host or CFG["router_host"]).strip())
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Algılama hatası: {e}") from e
+
+
+@app.post("/api/router/try-defaults")
+def api_router_try_defaults(body: TryDefaults, request: Request):
+    require_key(request)
+    cfg = {**CFG, "router_host": body.host.strip()}
+    extra = [(body.username, body.password or "")] if body.username else None
+    try:
+        res = router.try_login(cfg, extra)
+    except router.RouterError as e:
+        raise HTTPException(502, str(e)) from e
+    if res.get("found") and body.save:
+        CFG.update({"router_host": body.host.strip(), "router_user": res["username"], "router_password": res["password"]})
+        save_cfg(CFG)
+        res["saved"] = True
+    return res
+
+
 @app.post("/api/router/config")
 def api_router_config(body: RouterCfg, request: Request):
     require_key(request)
@@ -323,7 +356,8 @@ def api_router_config(body: RouterCfg, request: Request):
         raise HTTPException(502, str(e)) from e
     CFG.update({k: test[k] for k in ("router_host", "router_user", "router_password")})
     save_cfg(CFG)
-    return {"ok": True, "client": info["client"], "firmware": info["firmware"]}
+    return {"ok": True, "client": info["client"], "firmware": info["firmware"],
+            "is_default": credentials.is_default(test["router_user"], test["router_password"])}
 
 
 @app.delete("/api/router/config")

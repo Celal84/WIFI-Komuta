@@ -5,7 +5,11 @@ Modem aynı anda tek yönetici oturumuna izin verdiği için her işlem: giriş 
 """
 from __future__ import annotations
 
+import ssl
 import threading
+import urllib.request
+
+import credentials
 
 try:
     from tplinkrouterc6u import (Connection, TPLinkEXClient, TPLinkEXClientGCM,
@@ -132,3 +136,56 @@ def block(cfg: dict, mac: str, name: str = "", unblock: bool = False) -> bool:
         r.block_device(mac, name)
         return True
     return _session(cfg, fn)
+
+
+# ---------------------------------------------------------------- marka algılama + varsayılan giriş
+def detect_brand(host: str, timeout: float = 4.0) -> dict:
+    """Modem giriş sayfasını (LAN'da, proxy'siz) çekip markayı tahmin eder."""
+    url = _url(host)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    body, hdr = "", ""
+    reachable = False
+    for u in ([url] if url.startswith("https") else [url, url.replace("http://", "https://", 1)]):
+        try:
+            req = urllib.request.Request(u, headers={"User-Agent": "ex20v-agent"})
+            # LAN modemine gidildiği için sistem/çevre proxy'si atlanır.
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+                                                 urllib.request.HTTPSHandler(context=ctx))
+            with opener.open(req, timeout=timeout) as r:
+                reachable = True
+                hdr = " ".join(f"{k}:{v}" for k, v in r.headers.items())
+                body = r.read(60000).decode("utf-8", "replace")
+            break
+        except Exception:  # noqa: BLE001
+            continue
+    return {"reachable": reachable, "brand": credentials.detect_brand(body, hdr)}
+
+
+def try_login(cfg: dict, extra: list | None = None) -> dict:
+    """Varsayılan kullanıcı adı/parolaları sırayla deneyip ilk çalışanı bildirir.
+
+    Parolayı KAYDETMEZ; yalnızca hangi bilgilerle girilebildiğini döndürür. Çalışan
+    bir varsayılan bulunursa güvenlik uyarısı (is_default) ile birlikte verir.
+    """
+    host = cfg.get("router_host") or "192.168.1.1"
+    det = detect_brand(host)
+    if not det["reachable"]:
+        raise RouterError("Modeme ulaşılamadı. Aynı ağda ve adresin doğru olduğundan emin olun.")
+    tried = 0
+    for user, pw, note in credentials.candidates(det.get("brand"), extra):
+        tried += 1
+        if tried > 14:  # modemi kilitlememek için deneme sayısını sınırla
+            break
+        test = {**cfg, "router_user": user, "router_password": pw}
+        try:
+            info = status(test)
+        except Exception:  # noqa: BLE001
+            continue
+        return {
+            "found": True, "username": user, "password": pw, "note": note,
+            "brand": det.get("brand"), "is_default": credentials.is_default(user, pw),
+            "firmware": info.get("firmware"), "client": info.get("client"), "tried": tried,
+        }
+    return {"found": False, "brand": det.get("brand"), "tried": tried}
