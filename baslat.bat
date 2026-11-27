@@ -24,6 +24,7 @@ echo Bagimliliklar kontrol ediliyor...
 start "" /b cmd /c "timeout /t 3 >nul & start http://localhost:8080"
 echo.
 echo Windows Guvenlik Duvari sorarsa "Ozel aglar" icin izin verin (telefondan erisim icin).
+echo Telefonda kullanmak icin: acilan sayfadaki QR kodu iPhone kamerasiyla okutun.
 echo Kapatmak icin bu pencereyi kapatin.
 "agent\.venv\Scripts\python.exe" "agent\server.py"
 pause

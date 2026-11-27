@@ -1,7 +1,7 @@
 // EX20v Ağ Kontrol Merkezi — service worker (çevrimdışı açılış)
-const CACHE = 'ex20v-v1.0.1';
+const CACHE = 'ex20v-v1.1.0';
 const CORE = ['./', 'index.html', 'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
-const CDN = ['cdn.tailwindcss.com', 'cdn.jsdelivr.net', 'unpkg.com'];
+const CDN = ['cdn.jsdelivr.net']; // Chart.js ve QR kitaplığı (ilk kullanımda indirilir)
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

@@ -43,13 +43,17 @@ Nasıl: Ayrıca söylenmesini bekleme, izin sorma, adımlar arasında bekleme ya
 2. Bu kural yalnızca yeni açılan repolar için geçerlidir; mevcut repolara CLAUDE.md ekleme.
 
 ## 4. Proje mimarisi (EX20v Ağ Kontrol Merkezi)
-- `index.html`: tek dosya PWA (Tailwind/Chart.js/Lucide CDN, Vanilla JS). Derleme yok, GitHub Pages'te çalışır.
+- `index.html`: tek dosya PWA, iPhone öncelikli. Derleme ve çerçeve yok; CSS ve simge seti (Lucide, `<symbol>`) dosyaya gömülü. Chart.js ve QR kitaplığı yalnızca gerektiğinde CDN'den yüklenir.
+  - Gezinme: altta 5 sekme (Özet, Test, Cihazlar, Modem, Ayarlar) + alt sayfalar (`kanal`, `baglan`) + alttan açılan paneller (`sheet`, `ask`).
+  - Dil: sade Türkçe; teknik terimler yalnızca "Teknik ayrıntılar" altında.
 - `agent/server.py`: FastAPI yerel ajan (0.0.0.0:8080). API + arayüz dosyalarını (beyaz liste) sunar.
   - `netutil.py` (ping, ARP taraması, DNS kıyası, OUI), `netsh_parser.py` (TR/EN netsh ayrıştırma + kanal önerisi), `router.py` (tplinkrouterc6u ile EX20v kontrolü).
   - Veriler `agent/data/` (SQLite, config.json, manuf önbelleği) — git'e girmez.
 - Hibrit mod: arayüz açılışta `/api/health`'e 1.5 sn istek atar; ajan varsa tam mod, yoksa tarayıcı modu.
-- Güvenlik: CORS yalnızca `https://celal84.github.io` + localhost; başka kökenden POST reddedilir; modemi değiştiren işlemler localhost dışından `X-Agent-Key` ister.
-- HTTPS (Pages) sayfası LAN IP'deki HTTP ajana bağlanamaz → telefonda `http://PC-IP:8080` kullanılır.
-- Modem menü yolları `index.html` → `MENU` nesnesinde tek yerde.
+- Telefon eşleştirme: bilgisayardaki sayfa `http://PC-IP:8080/#k=ANAHTAR` adresini QR olarak gösterir. HTTPS (Pages) sayfası LAN'daki HTTP ajana bağlanamaz; telefon bu adresi açar. Ajan, kendi sunduğu sayfada Ana Ekran adını "Ev Ağım" yapar ve manifest'ten `start_url`'i çıkarır.
+- Güvenlik: CORS yalnızca `https://celal84.github.io` + localhost; başka kökenden POST reddedilir; modemi değiştiren işlemler localhost dışından `X-Agent-Key` ister (arayüz 401'de anahtarı sorar).
+- Ölçüm: ping = tarayıcı ağ zamanlaması (Resource Timing) − Cloudflare `server-timing` içindeki **tüm** `dur` değerleri. Yöntem değişirse `MV` artırılır; eski kayıtlar özet ve karşılaştırmada kullanılmaz.
+- Modem menü yolları `index.html` → `MENU` nesnesinde tek yerde ([Türkçe, İngilizce] çiftleri).
 - Sürüm 4 yerde birlikte güncellenir: `VERSION`, `index.html`, `agent/server.py`, `sw.js`. Tag adı: `EX20v_Ag_Kontrol_Merkezi_vX.Y.Z`.
-- Test: `python -m unittest discover -s agent/tests`.
+- Yayın: `main`'e gelen değişiklik `.github/workflows/pages.yml` ile GitHub Pages'e çıkar.
+- Test: `python -m unittest discover -s agent/tests`; arayüz için Playwright ile iPhone boyutunda ekran kontrolü.
