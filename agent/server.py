@@ -26,8 +26,9 @@ import netsh_parser  # noqa: E402
 import netutil  # noqa: E402
 import router  # noqa: E402
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 APP_NAME = "EX20v Ağ Kontrol Merkezi"
+HOME_TITLE = "Ev Ağım"  # telefonda Ana Ekran simgesinin adı (internet sürümü: "Ağ Kontrol")
 AGENT_DIR = Path(__file__).resolve().parent
 ROOT = AGENT_DIR.parent
 DB_PATH = AGENT_DIR / "data" / "ex20v.db"
@@ -410,6 +411,20 @@ def static(path: str):
     if not f.exists():
         raise HTTPException(404)
     headers = {"Cache-Control": "no-cache"}
+    if rel == "index.html":
+        # Ana Ekrana eklenen simge, internet sürümünden ayırt edilsin diye farklı adlandırılır.
+        html = f.read_text(encoding="utf-8").replace(
+            'name="apple-mobile-web-app-title" content="Ağ Kontrol"',
+            f'name="apple-mobile-web-app-title" content="{HOME_TITLE}"')
+        return Response(html, media_type="text/html; charset=utf-8", headers=headers)
+    if rel == "manifest.json":
+        # start_url/scope verilmez: Ana Ekrana eklenen simge, QR ile gelinen adresi
+        # (eşleştirme anahtarıyla birlikte) açar.
+        man = json.loads(f.read_text(encoding="utf-8"))
+        man.pop("start_url", None)
+        man.pop("scope", None)
+        man.update({"name": f"{HOME_TITLE} — {APP_NAME}", "short_name": HOME_TITLE})
+        return Response(json.dumps(man, ensure_ascii=False), media_type="application/manifest+json", headers=headers)
     return FileResponse(f, headers=headers)
 
 
@@ -417,9 +432,10 @@ def main() -> None:
     threading.Thread(target=netutil.ensure_oui, daemon=True).start()
     ip = netutil.local_ip(CFG["router_host"])
     print(f"\n  {APP_NAME} ajanı v{VERSION}")
-    print(f"  Bu PC      : http://localhost:{PORT}")
-    print(f"  Telefondan : http://{ip}:{PORT}")
-    print(f"  Ajan anahtarı (telefondan modem işlemleri için): {CFG['agent_key']}\n")
+    print(f"  Bu bilgisayar : http://localhost:{PORT}")
+    print(f"  Telefon       : açılan sayfadaki QR kodu okutun  (veya http://{ip}:{PORT})")
+    print(f"  Eşleştirme anahtarı: {CFG['agent_key']}  (QR okutulursa gerekmez)")
+    print("  Telefondan kullanmak için bu pencere açık kalmalı.\n")
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
 
 
