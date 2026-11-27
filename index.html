@@ -27,7 +27,7 @@
   --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;touch-action:manipulation}
 body{background:var(--bg);color:var(--text);font:400 16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;min-height:100vh;min-height:100dvh;touch-action:manipulation;-webkit-font-smoothing:antialiased}
 body::before{content:"";position:fixed;inset:0;z-index:-1;background:radial-gradient(900px 420px at 50% -140px,rgba(59,130,246,.2),transparent 70%),radial-gradient(600px 300px at 100% 0,rgba(34,211,238,.07),transparent 70%)}
 body.lock{overflow:hidden}
@@ -80,7 +80,7 @@ a{color:var(--accent-l)}
 .btn.ghost{background:rgba(148,163,184,.13);color:var(--text)}
 .btn.danger{background:rgba(251,113,133,.14);color:#ffa5b4}
 .btn.block{width:100%}
-.btn.sm{min-height:38px;padding:0 13px;font-size:14px;border-radius:12px}
+.btn.sm{min-height:38px;padding:0 13px;font-size:14px;border-radius:12px;white-space:nowrap;flex:none}
 .btn[disabled]{opacity:.55;pointer-events:none}
 .linkish{background:none;border:0;color:var(--accent-l);font-weight:600;padding:0;display:inline-flex;align-items:center;gap:6px}
 .xbtn{width:32px;height:32px;border-radius:50%;background:rgba(148,163,184,.16);border:0;color:var(--sub);display:grid;place-items:center;flex:none}
@@ -179,6 +179,8 @@ details[open]>summary .chev{transform:rotate(90deg)}
 .kv>div>span:first-child{color:var(--sub);flex:none;max-width:55%}
 .kv b{font-weight:600;text-align:right;word-break:break-word}
 .copybox{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 9px 9px 14px;border:1px dashed rgba(148,163,184,.32);border-radius:14px;background:rgba(7,11,20,.5);font-weight:600;word-break:break-all}
+.copybox.col{flex-direction:column;align-items:stretch;text-align:center;gap:10px;padding:14px}
+.copybox.col .mono{font-size:17px}
 .note{font-size:13.5px;line-height:1.45;padding:11px 13px;border-radius:13px;background:rgba(59,130,246,.1);color:#bcd6ff;display:flex;gap:9px}
 .note .ic{margin-top:1px}
 .note.warn{background:rgba(251,191,36,.1);color:#fde08a}
@@ -591,7 +593,7 @@ function qDown(v) { if (v == null) return 'none'; const p = S.settings.planDown;
 function qUp(v) { if (v == null) return 'none'; const p = S.settings.planUp; if (p > 0) return v >= p * .8 ? 'ok' : v >= p * .6 ? 'warn' : 'bad'; return v >= 5 ? 'ok' : v >= 1.5 ? 'warn' : 'bad'; }
 const qPing = v => v == null ? 'none' : v <= 50 ? 'ok' : v <= 100 ? 'warn' : 'bad';
 const qBB = v => v == null ? 'none' : v <= 30 ? 'ok' : v <= 100 ? 'warn' : 'bad';
-const tile = (l, i, v, u, q) => `<div class="tile"><div class="l">${ic(i)}${l}</div><div class="v">${v}<small>${u}</small></div><div class="q ${q}">${QW[q] || '&nbsp;'}</div></div>`;
+const tile = (l, i, v, u, q) => `<div class="tile"><div class="l">${ic(i)}${l}</div><div class="v">${v}<small>${u}</small></div>${QW[q] ? `<div class="q ${q}">${QW[q]}</div>` : ''}</div>`;
 const metricTiles = m => `<div class="tiles">
   ${tile('İndirme', 'arrow-down', spd(m.download), 'Mbps', qDown(m.download))}${tile('Yükleme', 'arrow-up', spd(m.upload), 'Mbps', qUp(m.upload))}
   ${tile('Tepki süresi', 'timer', num(m.ping), 'ms', qPing(m.ping))}${tile('Yoğunlukta gecikme', 'activity', m.bufferbloat == null ? '—' : '+' + num(m.bufferbloat), 'ms', qBB(m.bufferbloat))}</div>`;
@@ -609,7 +611,7 @@ function ring(score, tone) {
   const anim = S._ring !== score ? 'anim' : ''; S._ring = score;
   return `<div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(148,163,184,.14)" stroke-width="10"/>
     ${score == null ? '' : `<circle class="${anim}" cx="60" cy="60" r="52" fill="none" stroke="${col}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 60 60)"/>`}</svg>
-    <div class="ring-c"><b class="c-${tone}">${score ?? '?'}</b><span>${score == null ? 'puan yok' : '100 üzerinden'}</span></div></div>`;
+    <div class="ring-c"><b class="c-${tone}">${score ?? '?'}</b><span>${score == null ? 'puan yok' : '/ 100'}</span></div></div>`;
 }
 function vOzet() {
   const m = cur(), a = analyze(m), sc = a.score, tone = toneOf(sc), legacy = S.last && !m;
@@ -845,7 +847,7 @@ async function uploadTest(sec) {
     while (!stop && performance.now() - t0 < sec * 1000) {
       const my = id++;
       await new Promise(res => {
-        const x = new XMLHttpRequest(); xhrs.add(x); x.open('POST', `${CF}/__up?r=${rnd()}`);
+        const x = new XMLHttpRequest(); xhrs.add(x); x.open('POST', `${CF}/__up`); // sabit adres: CORS ön kontrolü bir kez yapılır
         x.upload.onprogress = e => loaded.set(my, e.loaded);
         x.onloadend = () => { xhrs.delete(x); res(); };
         x.send(upBlob());
@@ -976,6 +978,7 @@ const isUnknown = d => d.online && !d.trusted && !d.name;
 const findDev = mac => S.devices && S.devices.devices.find(d => d.mac === mac);
 const okMac = m => /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/.test(m);
 const bandName = t => ({ host_2g: 'Wi-Fi 2.4 GHz', host_5g: 'Wi-Fi 5 GHz', guest_2g: 'Misafir ağı 2.4 GHz', guest_5g: 'Misafir ağı 5 GHz', wired: 'Kablolu' }[t] || '');
+const bandShort = t => ({ host_2g: '2.4 GHz', host_5g: '5 GHz', guest_2g: 'Misafir 2.4', guest_5g: 'Misafir 5', wired: 'Kablolu' }[t] || '');
 const devTitle = d => d.name || d.hostname || (d.vendor && !d.random_mac ? d.vendor : '') || 'Bilinmeyen cihaz';
 function devIcon(d) {
   if (d.category && CATEGORIES[d.category]) return CATEGORIES[d.category];
@@ -1014,7 +1017,7 @@ function vCihazlar() {
   </section>
   <div class="seg">${seg('all', 'Tümü', all.length)}${seg('unknown', 'Bilinmeyen', un.length)}${seg('offline', 'Çevrimdışı', off.length)}</div>
   ${list.length ? `<section class="card flush">${list.map(d => !okMac(d.mac) ? '' : rowBtn(`openDevice('${d.mac}')`, devIcon(d), isUnknown(d) ? 'bad' : d.online ? '' : 'mute',
-    esc(devTitle(d)), esc([d.ip, bandName(d.type) || (d.random_mac ? 'Özel MAC' : d.vendor)].filter(Boolean).join(' · ')), devBadge(d))).join('')}</section>` : '<p class="hint center">Bu listede cihaz yok.</p>'}`;
+    esc(devTitle(d)), esc([d.ip, bandShort(d.type) || (d.random_mac ? 'Özel MAC' : d.vendor)].filter(Boolean).join(' · ')), devBadge(d))).join('')}</section>` : '<p class="hint center">Bu listede cihaz yok.</p>'}`;
 }
 async function loadDevices() {
   if (S.devicesLoading) return;
@@ -1167,8 +1170,8 @@ function pKanal() {
   ${W.smart_connect_warning ? `<p class="note warn">${ic('triangle-alert')}<span><b>Bilgisayar yavaş bantta (2.4 GHz).</b> ${W.own_5g_visible ? 'Modeminizin 5 GHz yayını görünüyor. ' : ''}<button class="linkish" onclick="openGuide('kanal')">Nasıl düzeltirim?</button></span></p>` : ''}
   <div class="sec">Önerilen Kanallar <span>${r.neighbors} komşu ağ</span></div>
   <div class="tiles">
-    <div class="tile"><div class="l">2.4 GHz · 20 MHz</div><div class="v c-ok">${r.best_24}<small>. kanal</small></div><div class="q none">Yük — ${[1, 6, 11].map(c => `${c}: ${num(r.load_24[c])}`).join(' · ')}</div></div>
-    <div class="tile"><div class="l">5 GHz · 80 MHz</div><div class="v c-ok">${r.best_5.channel}<small>. kanal</small></div><div class="q none">${r.best_5.dfs ? 'Radar paylaşımlı (DFS)' : 'En uyumlu blok'}</div></div></div>
+    <div class="tile"><div class="l">${ic('radio')}2.4 GHz kanalı</div><div class="v c-ok">${esc(r.best_24)}</div><div class="q none">20 MHz genişlik</div></div>
+    <div class="tile"><div class="l">${ic('radio')}5 GHz kanalı</div><div class="v c-ok">${esc(r.best_5.channel)}</div><div class="q none">80 MHz genişlik${r.best_5.dfs ? ' · radar paylaşımlı' : ''}</div></div></div>
   <button class="btn primary block" onclick="openGuide('kanal')">${ic('list-checks')} Modemde Nasıl Ayarlarım?</button>
   <section class="card"><div class="h3">2.4 GHz yoğunluğu</div><div class="chart mt-s"><canvas id="ch24"></canvas></div></section>
   <section class="card"><div class="h3">5 GHz yoğunluğu</div><div class="chart mt-s"><canvas id="ch5"></canvas></div></section>
@@ -1209,7 +1212,7 @@ function pBaglan() {
     return `<section class="card center"><span class="chip ok">${ic('circle-check')} Bu bilgisayar hazır</span>
       <h2 class="h2 mt">iPhone'unuzla eşleştirin</h2><p class="sub">Telefon aynı Wi-Fi'a bağlıyken kamerayı QR koda tutun.</p>
       ${lan ? `<div id="qr" class="qrbox">${ic('loader-circle', 'spin')}</div>
-      <div class="copybox" style="text-align:left"><span class="mono">http://${esc(a.info.pc_ip)}:${a.info.port || AGENT_PORT}</span><button class="btn sm ghost" data-copy="${esc(pairUrl())}" data-label="Adres kopyalandı">${ic('copy')} Kopyala</button></div>
+      <div class="copybox col"><span class="mono">http://${esc(a.info.pc_ip)}:${a.info.port || AGENT_PORT}</span><button class="btn sm ghost" data-copy="${esc(pairUrl())}" data-label="Adres kopyalandı">${ic('copy')} Adresi Kopyala</button></div>
       <p class="hint mt-s">Eşleştirme anahtarı: <b class="mono">${esc(S.pcKey || '—')}</b></p>` : `<p class="note warn mt" style="text-align:left">${ic('triangle-alert')}<span>Bu bilgisayar bir ağa bağlı görünmüyor. Wi-Fi veya kablo bağlantısını kontrol edip sayfayı yenileyin.</span></p>`}
     </section>
     <section class="card"><ol class="steps"><li>iPhone'da <b>Kamera</b>'yı açıp QR kodu okutun, çıkan bağlantıya dokunun.</li><li>Açılan sayfada alttaki <b>Paylaş</b> ${ic('share')} simgesine dokunun.</li><li><b>Ana Ekrana Ekle</b>'yi seçin. Artık uygulama gibi açılır.</li></ol>
@@ -1256,7 +1259,7 @@ function vAyarlar() {
   const s = S.settings, a = S.agent;
   return `
   <div class="sec">Bağlantı</div><section class="card flush">
-    ${rowBtn("openPage('baglan')", a ? 'plug-zap' : 'cloud', a ? 'ok' : '', a ? 'Yerel Ajan Bağlı' : S.checking ? 'Aranıyor…' : 'Bulut/Tarayıcı Modu', a ? `${esc(a.info.hostname)} · tam kontrol` : 'Yalnızca hız testi · eşleştirmek için dokunun')}
+    ${rowBtn("openPage('baglan')", a ? 'plug-zap' : 'cloud', a ? 'ok' : '', a ? 'Yerel Ajan Bağlı' : S.checking ? 'Aranıyor…' : 'Bulut/Tarayıcı Modu', a ? `${esc(a.info.hostname)} · tam kontrol` : 'Eşleştirmek için dokunun')}
     ${a && !a.info.key_required ? rowBtn("openPage('baglan')", 'qr-code', 'violet', "iPhone'da Kullan", 'Eşleştirme QR kodunu göster') : ''}
     ${a && a.info.key_required ? rowBtn('enterKey()', 'key-round', s.key ? 'ok' : 'warn', 'Eşleştirme Anahtarı', s.key ? 'Kayıtlı · değiştirmek için dokunun' : 'Modem işlemleri için gerekli') : ''}
   </section>
