@@ -26,7 +26,7 @@ import netsh_parser  # noqa: E402
 import netutil  # noqa: E402
 import router  # noqa: E402
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 APP_NAME = "EX20v Ağ Kontrol Merkezi"
 HOME_TITLE = "Ev Ağım"  # telefonda Ana Ekran simgesinin adı (internet sürümü: "Ağ Kontrol")
 AGENT_DIR = Path(__file__).resolve().parent
