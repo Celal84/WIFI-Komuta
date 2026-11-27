@@ -118,7 +118,7 @@ button.row:active,a.row:active{background:rgba(255,255,255,.05)}
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .tile{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.012)),var(--card);border:1px solid var(--line);border-radius:18px;padding:13px 15px;min-width:0}
 .tile .l{font-size:12.5px;color:var(--sub);font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap}
-.tile .v{font-size:27px;font-weight:800;letter-spacing:-.02em;margin-top:5px;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tile .v{font-size:27px;font-weight:800;letter-spacing:-.02em;margin-top:5px;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .v small{font-size:13px;font-weight:600;color:var(--sub);margin-left:4px;letter-spacing:0}
 .tile .q{margin-top:3px}
 .card .tile{background:rgba(255,255,255,.03)}
@@ -326,7 +326,7 @@ th:first-child,td:first-child{text-align:left;max-width:9.5rem;overflow:hidden;t
    EX20v Ağ Kontrol Merkezi — tek dosya PWA (derleme yok, harici çerçeve yok)
    Sürüm 4 yerde birlikte güncellenir: VERSION dosyası, bu dosya, agent/server.py, sw.js
    ===================================================================== */
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const APP = 'EX20v Ağ Kontrol Merkezi';
 const GATEWAY = '192.168.1.1';
 const CF = 'https://speed.cloudflare.com';
@@ -1089,7 +1089,7 @@ function vModem() {
     <p class="hint mt-s">Parola yalnızca evdeki bilgisayarınızda saklanır. Modem arayüzü başka bir yerde açıksa önce oradan çıkış yapın.</p>
   </section>`;
   if (!i.router_configured) return `${login}${guidesBlock()}<div class="stack">${modemBtn}</div>`;
-  const up = R && R.wan_uptime ? (R.wan_uptime >= 86400 ? `${Math.floor(R.wan_uptime / 86400)} gün ${Math.floor(R.wan_uptime % 86400 / 3600)} sa` : `${Math.floor(R.wan_uptime / 3600)} sa ${Math.floor(R.wan_uptime % 3600 / 60)} dk`) : '—';
+  const u = R && R.wan_uptime, up = !u ? ['—', ''] : u >= 86400 ? [Math.floor(u / 86400), `gün ${Math.floor(u % 86400 / 3600)} sa`] : u >= 3600 ? [Math.floor(u / 3600), `sa ${Math.floor(u % 3600 / 60)} dk`] : [Math.floor(u / 60), 'dk'];
   const pct = v => v == null ? '—' : '%' + num(v <= 1 ? v * 100 : v);
   const sw = k => R.wifi[k] == null ? '' : `<div class="row"><span class="bi ${R.wifi[k] ? 'ok' : 'mute'}">${ic(R.wifi[k] ? 'wifi' : 'wifi-off')}</span><span class="grow"><span class="t">${WIFI_NAMES[k]}</span><span class="s">${R.wifi[k] ? 'Yayında' : 'Kapalı'}</span></span>
     <button class="sw" role="switch" aria-label="${WIFI_NAMES[k]}" aria-checked="${!!R.wifi[k]}" onclick="toggleWifi('${k}',this)"></button></div>`;
@@ -1098,7 +1098,7 @@ function vModem() {
       <p class="sub" style="margin-top:2px">${R ? `<span class="c-ok">●</span> Bağlı${R.firmware && R.firmware.firmware ? ' · ' + esc(R.firmware.firmware) : ''}` : S.routerError ? '<span class="c-bad">●</span> Bağlanılamadı' : 'Bilgi alınıyor…'}</p></div>
       <button class="btn ghost sm" onclick="loadRouter()" ${S.routerLoading ? 'disabled' : ''}>${ic('refresh-cw', S.routerLoading ? 'spin' : '')} Yenile</button></div>
     ${S.routerError ? `<p class="note warn mt">${ic('triangle-alert')}<span>${esc(S.routerError)}</span></p>` : ''}
-    ${R ? `<div class="tiles mt">${tile('Bağlı cihaz', 'users', R.clients_total ?? '—', '', 'none')}${tile('Kesintisiz süre', 'clock', up, '', 'none')}
+    ${R ? `<div class="tiles mt">${tile('Bağlı cihaz', 'users', R.clients_total ?? '—', '', 'none')}${tile('Kesintisiz süre', 'clock', up[0], up[1], 'none')}
       ${tile('İşlemci', 'cpu', pct(R.cpu), '', 'none')}${tile('Bellek', 'activity', pct(R.mem), '', 'none')}</div>
       <div class="kv mt"><div><span>İnternet IP</span><b class="mono">${esc(R.wan_ip || '—')}</b></div><div><span>Wi-Fi / kablolu</span><b>${R.wifi_clients ?? 0} / ${R.wired_clients ?? 0} cihaz</b></div></div>` : S.routerError ? '' : `<div class="mt">${skeleton(2)}</div>`}
   </section>
