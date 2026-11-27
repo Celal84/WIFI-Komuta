@@ -15,6 +15,8 @@ Tamamen Türkçe, kurulum gerektirmez; Ana Ekrana eklenince uygulama gibi açıl
 | Test geçmişi ve öncesi/sonrası karşılaştırma | ✅ | ✅ |
 | Bağlı cihazlar, bilinmeyen cihaz uyarısı | — | ✅ |
 | **Modem kontrolü:** Wi-Fi ve misafir ağını aç/kapat, yeniden başlat | — | ✅ |
+| **Ağ Doktoru + Tek Tuşla Optimize:** sorunları bulur, güvenli olanları otomatik uygular | kısmi (rehber) | ✅ |
+| **Varsayılan şifreyle modem girişi** (markaya göre) | — | ✅ |
 | Wi-Fi kanal analizi (en boş kanal) | — | ✅ |
 
 ## iPhone'da kullanım
@@ -73,3 +75,11 @@ python -m unittest discover -s agent/tests     # netsh / arp / ping ayrıştır�
 - `main` dalına gelen her değişiklik GitHub Pages'e kendiliğinden yayınlanır (`.github/workflows/pages.yml`).
 - Sürüm numarası dört yerde birlikte güncellenir: `VERSION`, `index.html`, `agent/server.py`, `sw.js`.
 - Simgeler: [Lucide](https://lucide.dev) (ISC lisansı).
+
+## Ağ Doktoru ve Tek Tuşla Optimize
+Özet ekranındaki **Ağımı Optimize Et**, ölçüm sonuçlarına göre bir düzeltme planı çıkarır:
+- **Otomatik uygulananlar:** modemin desteklediği güvenli ayarlar (ör. kapalı 5 GHz bandını açma). Tek onayla uygulanır.
+- **Yönlendirmeli olanlar:** kanal, DNS ve QoS. Bunlar güvenlik gereği modemin kendi sayfasında yapılır; uygulama doğru değerleri hazırlar, kopyalar ve modem sayfasını açar. (TP-Link EX20v, bu ayarların dışarıdan değiştirilmesine izin vermez.)
+
+## Modem parolasını bilmiyorsanız
+**Modem → Şifremi Bilmiyorum — Otomatik Dene**, modeminizin markasına göre yaygın fabrika şifrelerini sırayla dener ve çalışanı gösterir. Varsayılan bir şifre hâlâ çalışıyorsa bu bir güvenlik riskidir; uygulama sizi uyarır ve değiştirmenizi önerir. Denenen şifreler herkese açık (modem etiketi/kılavuzu) bilgilerdir ve yalnızca kendi modeminize giriş içindir.

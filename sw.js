@@ -1,5 +1,5 @@
 // EX20v Ağ Kontrol Merkezi — service worker (çevrimdışı açılış)
-const CACHE = 'ex20v-v1.1.1';
+const CACHE = 'ex20v-v1.2.0';
 const CORE = ['./', 'index.html', 'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 const CDN = ['cdn.jsdelivr.net']; // Chart.js ve QR kitaplığı (ilk kullanımda indirilir)
 
